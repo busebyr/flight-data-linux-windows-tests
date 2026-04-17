@@ -9,7 +9,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Sistem bağımlılıkları
+      - name: Sistem bagımlılıkları
         run: |
           sudo apt-get update
           sudo apt-get install -y libgl1 xvfb libxcb-xinerama0 libegl1 libopengl0 libxcb-cursor0
@@ -21,7 +21,7 @@ jobs:
           import analiz_motoru
           print('OK: analiz_motoru')
           "
-     - name: GUI testi
+      - name: GUI testi
         run: |
           xvfb-run python -c "
           import sys
