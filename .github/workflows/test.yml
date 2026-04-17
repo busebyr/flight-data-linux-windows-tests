@@ -21,10 +21,12 @@ jobs:
           import analiz_motoru
           print('OK: analiz_motoru')
           "
-      - name: GUI testi
+     - name: GUI testi
         run: |
           xvfb-run python -c "
           import sys
+          import os
+          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
           from PyQt6.QtWidgets import QApplication
           import analiz_motoru
           app = QApplication(sys.argv)
