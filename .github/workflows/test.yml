@@ -1,0 +1,30 @@
+name: Linux Test
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Sistem bağımlılıkları
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 xvfb libxcb-xinerama0
+
+      - name: Kütüphaneleri kur
+        run: pip install -r requirements.txt
+
+      - name: Import testi
+        run: |
+          xvfb-run python -c "
+          import analiz_motoru
+          print('OK: analiz_motoru')
+          "
