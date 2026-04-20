@@ -34,3 +34,34 @@ jobs:
           app = QApplication(sys.argv)
           print('OK: GUI ve analiz_motoru birlikte calisti')
           "
+      - name: Grafik testi
+        run: |
+          xvfb-run python -c "
+          import os
+          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+          import matplotlib
+          matplotlib.use('Agg')
+          import pandas as pd
+          import numpy as np
+          from analiz_motoru import dosyalari_yukle, grafikleri_ciz, ortak_zaman_ekseni, veriyi_hizala
+
+          # Sahte CSV olustur
+          import tempfile, os
+          tmp = tempfile.mkdtemp()
+          csv_icerik = 'header\nzaman\tvalue\n0\t1.0\n1000000\t2.0\n2000000\t3.0\n3000000\t4.0\n'
+          with open(os.path.join(tmp, 'test.csv'), 'w') as f:
+              f.write(csv_icerik)
+
+          # Dosya yukle
+          veriler = dosyalari_yukle(tmp, ['test.csv'])
+          print('OK: dosya yuklendi')
+
+          # Ortak zaman ekseni
+          t = ortak_zaman_ekseni(veriler)
+          print(f'OK: ortak zaman ekseni {len(t)} nokta')
+
+          # Grafik ciz
+          parametre_map = {1: ('test.csv', 'value')}
+          fig, lines, data, uyarilar = grafikleri_ciz(veriler, parametre_map, 'realtime', 1)
+          print(f'OK: grafik cizildi, {len(lines)} line')
+          "
