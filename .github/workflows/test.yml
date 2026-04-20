@@ -67,5 +67,5 @@ jobs:
           "
       - name: Unit testler
         run: |
-           xvfb-run python -m pytest tests/ -v
+          xvfb-run python -m pytest test_suite.py -v
  
