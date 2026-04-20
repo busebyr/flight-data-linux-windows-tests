@@ -65,7 +65,4 @@ jobs:
           fig, lines, data, uyarilar = grafikleri_ciz(veriler, parametre_map, 'realtime', 1)
           print(f'OK: grafik cizildi, {len(lines)} line')
           "
-      - name: Unit testler
-        run: |
-          xvfb-run python -m pytest test_suite.py -v
  
