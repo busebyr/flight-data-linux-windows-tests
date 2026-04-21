@@ -75,7 +75,8 @@ jobs:
       - name: Linux binary üret
         run: |
           pip install pyinstaller
-          xvfb-run pyinstaller --onefile --windowed --add data "*.xlsx:." main.py
+          xvfb-run pyinstaller --onefile --windowed --add-data "*.xlsx:." main.py
+          
       - name: Linux artifact yükle
         uses: actions/upload-artifact@v4
         with:
@@ -92,12 +93,15 @@ jobs:
         uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
+          
       - name: Kütüphaneleri kur
         run: pip install -r requirements.txt
+        
       - name: Windows binary üret
         run: |
           pip install pyinstaller
-          pyinstaller --onefile --windowed main.py --add data "*.xlsx;." main.py
+          pyinstaller --onefile --windowed --add-data "*.xlsx;." main.py
+          
       - name: Windows artifact yükle
         uses: actions/upload-artifact@v4
         with:
