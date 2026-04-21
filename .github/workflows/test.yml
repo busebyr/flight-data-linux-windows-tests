@@ -1,31 +1,39 @@
-name: Linux Test
+name: Build and Test
+
 on: [push]
+
 jobs:
-  test:
+  test-and-build-linux:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4.2.2
-     
       - name: Python kur
         uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
-     
       - name: Sistem bagımlılıkları
         run: |
           sudo apt-get update
           sudo apt-get install -y libgl1 xvfb libxcb-xinerama0 libegl1 libopengl0 libxcb-cursor0
-     
       - name: Kütüphaneleri kur
         run: pip install -r requirements.txt
-     
       - name: Analiz motoru testi
         run: |
           xvfb-run python -c "
+          import os
+          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
           import analiz_motoru
           print('OK: analiz_motoru')
+          "
+      - name: Error analyzer testi
+        run: |
+          xvfb-run python -c "
+          import os
+          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+          import error_analyzer
+          print('OK: error_analyzer')
           "
       - name: GUI testi
         run: |
@@ -48,23 +56,15 @@ jobs:
           import pandas as pd
           import numpy as np
           from analiz_motoru import dosyalari_yukle, grafikleri_ciz, ortak_zaman_ekseni, veriyi_hizala
-
-          # Sahte CSV olustur
-          import tempfile, os
+          import tempfile
           tmp = tempfile.mkdtemp()
           csv_icerik = 'header\nzaman\tvalue\n0\t1.0\n1000000\t2.0\n2000000\t3.0\n3000000\t4.0\n'
           with open(os.path.join(tmp, 'test.csv'), 'w') as f:
               f.write(csv_icerik)
-
-          # Dosya yukle
           veriler = dosyalari_yukle(tmp, ['test.csv'])
           print('OK: dosya yuklendi')
-
-          # Ortak zaman ekseni
           t = ortak_zaman_ekseni(veriler)
           print(f'OK: ortak zaman ekseni {len(t)} nokta')
-
-          # Grafik ciz
           parametre_map = {1: ('test.csv', 'value')}
           fig, lines, data, uyarilar = grafikleri_ciz(veriler, parametre_map, 'realtime', 1)
           print(f'OK: grafik cizildi, {len(lines)} line')
@@ -72,13 +72,34 @@ jobs:
       - name: Test Suite
         run: |
           xvfb-run python -m unittest test_suite -v
-
-      - name: Error analyzer testi
+      - name: Linux binary üret
         run: |
-          xvfb-run python -c "
-          import os
-          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-          import error_analyzer
-          print('OK: error_analyzer')
-          "
- 
+          pip install pyinstaller
+          xvfb-run pyinstaller --onefile main.py
+      - name: Linux artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: dist/main
+
+  build-windows:
+    runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Python kur
+        uses: actions/setup-python@v5.4.0
+        with:
+          python-version: '3.11'
+      - name: Kütüphaneleri kur
+        run: pip install -r requirements.txt
+      - name: Windows binary üret
+        run: |
+          pip install pyinstaller
+          pyinstaller --onefile main.py
+      - name: Windows artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/main.exe
