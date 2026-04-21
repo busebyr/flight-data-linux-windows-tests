@@ -7,16 +7,20 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4.2.2
+     
       - name: Python kur
         uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
+     
       - name: Sistem bagımlılıkları
         run: |
           sudo apt-get update
           sudo apt-get install -y libgl1 xvfb libxcb-xinerama0 libegl1 libopengl0 libxcb-cursor0
+     
       - name: Kütüphaneleri kur
         run: pip install -r requirements.txt
+     
       - name: Analiz motoru testi
         run: |
           xvfb-run python -c "
