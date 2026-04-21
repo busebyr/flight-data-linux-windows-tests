@@ -16,7 +16,7 @@ jobs:
       - name: Sistem bagımlılıkları
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 xvfb libxcb-xinerama0 libegl1 libopengl0 libxcb-cursor0
+          sudo apt-get install -y libgl1 xvfb libxcb-xinerama0 libegl1 libopengl0
       - name: Kütüphaneleri kur
         run: pip install -r requirements.txt
       - name: Analiz motoru testi
