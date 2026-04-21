@@ -75,7 +75,7 @@ jobs:
       - name: Linux binary üret
         run: |
           pip install pyinstaller
-          xvfb-run pyinstaller --onefile --windowed main.py
+          xvfb-run pyinstaller --onefile --windowed --add data "*.xlsx:." main.py
       - name: Linux artifact yükle
         uses: actions/upload-artifact@v4
         with:
@@ -97,7 +97,7 @@ jobs:
       - name: Windows binary üret
         run: |
           pip install pyinstaller
-          pyinstaller --onefile --windowed main.py
+          pyinstaller --onefile --windowed main.py --add data "*.xlsx;." main.py
       - name: Windows artifact yükle
         uses: actions/upload-artifact@v4
         with:
