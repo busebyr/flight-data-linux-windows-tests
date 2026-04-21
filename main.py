@@ -603,7 +603,7 @@ class GrafikPenceresi(QMainWindow):
 
         menu = QMenu(self)
         alias_action = menu.addAction("Edit Alias")
-        delete_alias_action = menu.addAction("Delete Alias")  # ← ekle
+        delete_alias_action = menu.addAction("Delete Alias")  
         action = menu.exec(QCursor.pos())
 
         # Mouse yapışmasını çöz
