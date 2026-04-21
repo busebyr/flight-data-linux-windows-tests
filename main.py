@@ -23,25 +23,6 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from analiz_motoru import dosyalari_yukle, grafikleri_ciz, DosyaHatasi
 from error_analyzer import analyze_errors, find_variable_system, check_special_variable
 
-<<<<<<< HEAD
-def get_app_dir() -> str:
-    """Sadece okuma: xlsx ve data dosyaları için (frozen'da MEIPASS)."""
-    if getattr(sys, 'frozen', False):
-        return sys.MEIPASS
-=======
-def _get_app_dir() -> str:
-    if getattr(sys, 'frozen', False):
-
-        return sys._MEIPASS
->>>>>>> 38e12967fcc94113f89f0278ed84e5d92e8aefcb
-    try:
-        return os.path.dirname(os.path.abspath(__file__))
-    except NameError:
-        return os.path.abspath(os.getcwd())
-
-<<<<<<< HEAD
-def get_writable_dir() -> str:
-=======
 def _get_app_dir() -> str:
     """Sadece okuma: xlsx ve data dosyaları için (frozen'da _MEIPASS)."""
     if getattr(sys, 'frozen', False):
@@ -51,8 +32,8 @@ def _get_app_dir() -> str:
     except NameError:
         return os.path.abspath(os.getcwd())
 
+
 def _get_writable_dir() -> str:
->>>>>>> 38e12967fcc94113f89f0278ed84e5d92e8aefcb
     """Yazma: aliases.json gibi kullanıcı verisi için (frozen'da exe'nin yanı)."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(os.path.abspath(sys.executable))
@@ -603,7 +584,7 @@ class GrafikPenceresi(QMainWindow):
 
         menu = QMenu(self)
         alias_action = menu.addAction("Edit Alias")
-        delete_alias_action = menu.addAction("Delete Alias")  
+        delete_alias_action = menu.addAction("Delete Alias")
         action = menu.exec(QCursor.pos())
 
         # Mouse yapışmasını çöz
@@ -1050,11 +1031,7 @@ class AnaPencere(QWidget):
         self.alias_map = {}
         try:
             from error_analyzer import ErrorClassLoader
-<<<<<<< HEAD
-            uygulama_klasoru = get_app_dir()
-=======
             uygulama_klasoru = _get_app_dir()
->>>>>>> 38e12967fcc94113f89f0278ed84e5d92e8aefcb
             xlsx_listesi = [
                 f for f in os.listdir(uygulama_klasoru)
                 if 'ERROR_CLASS' in f.upper() and f.upper().endswith('.XLSX')
@@ -1072,11 +1049,7 @@ class AnaPencere(QWidget):
 
 
         #Alias dosyasını yükle
-<<<<<<< HEAD
-        uygulama_dizini = get_writable_dir()
-=======
         uygulama_dizini = _get_writable_dir()
->>>>>>> 38e12967fcc94113f89f0278ed84e5d92e8aefcb
         alias_yolu = os.path.join(uygulama_dizini, "data", "aliases.json")
         if os.path.exists(alias_yolu):
             try:
@@ -1236,11 +1209,7 @@ class AnaPencere(QWidget):
         if not self.klasor:
             return
 
-<<<<<<< HEAD
-        uygulama_dizini = get_writable_dir()
-=======
         uygulama_dizini = _get_writable_dir()
->>>>>>> 38e12967fcc94113f89f0278ed84e5d92e8aefcb
         alias_yolu = os.path.join(uygulama_dizini, "data", "aliases.json")
         os.makedirs(os.path.dirname(alias_yolu), exist_ok=True)
         with open(alias_yolu, 'w', encoding='utf-8') as f:
