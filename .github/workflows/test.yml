@@ -68,4 +68,13 @@ jobs:
       - name: Test Suite
         run: |
           xvfb-run python -m unittest test_suite -v
+
+      - name: Error analyzer testi
+        run: |
+          xvfb-run python -c "
+          import os
+          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+          import error_analyzer
+          print('OK: error_analyzer')
+          "
  
