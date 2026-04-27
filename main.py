@@ -690,6 +690,7 @@ class GrafikPenceresi(QMainWindow):
                                          1) if sag and not sabit_mi and mevcut_gosterim in str(sag or '') else sag,
                         sabit_mi
                     )
+
                 self.op_data = yeni_op_data
                 self.ops_dropdown_guncelle()
 
@@ -1457,6 +1458,8 @@ class AnaPencere(QWidget):
                     yeni_u_label = u_label.replace(eski_alias, yeni_ad) if eski_alias in u_label else u_label
                     yeni_ters_map[yeni_u_label] = g_label
                 pencere.ters_label_map = yeni_ters_map
+
+                pencere.ops_dropdown_guncelle()
 
                 # legend ve line label'ları
                 legend = ax.get_legend()
