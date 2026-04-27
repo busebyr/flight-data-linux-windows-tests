@@ -899,6 +899,7 @@ class GrafikPenceresi(QMainWindow):
 
     def csv_export(self):
         secili = [item.text() for item in self.csv_listesi.selectedItems()]
+
         if not secili:
             QMessageBox.warning(self, "Warning", "Please select at least one parameter.")
             return
@@ -922,6 +923,7 @@ class GrafikPenceresi(QMainWindow):
 
         for label, (t_arr, v_arr) in self.plotted_data.items():
             u_ismi = self.label_map.get(label, label)
+
             if u_ismi in secili:
                 df_par = pd.DataFrame({
                     f"{u_ismi}_t": pd.Series(np.asarray(t_arr)),
@@ -1281,7 +1283,7 @@ class AnaPencere(QWidget):
             #label_map ve ters_label_map güncelle
             yeni_label_map = {}
             for g_label, u_label in pencere.label_map.items():
-                yeni_label_map[guncelle(g_label)] = guncelle(u_label)
+                yeni_label_map[g_label] = guncelle(u_label)
             pencere.label_map = yeni_label_map
             pencere.ters_label_map = {v: k for k, v in yeni_label_map.items()}
 
