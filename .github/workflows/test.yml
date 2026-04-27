@@ -12,7 +12,7 @@ jobs:
       - name: Python kur
         uses: actions/setup-python@v5.4.0
         with:
-          python-version: '3.11'
+          python-version: '3.14'
       - name: Sistem bagımlılıkları
         run: |
           sudo apt-get update
