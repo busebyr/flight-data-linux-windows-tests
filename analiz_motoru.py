@@ -135,84 +135,90 @@ def grafikleri_ciz(tum_veriler, parametre_map, mode, figure_no, units=None, alia
     lines = []
     uyarilar = []
 
-    if mode in ['previous', 'nearest']:
-        ortak_t = ortak_zaman_ekseni(tum_veriler)
-        referans_timeline = ortak_t if len(ortak_t) > 0 else None
-    else:
-        referans_timeline = None
-
-    for pid, (dosya, kolon) in parametre_map.items():
-
-        unit = units[pid - 1] if pid - 1 < len(units) else 'Default Units'
-
-        if dosya not in tum_veriler:
-            continue
-
-        df = tum_veriler[dosya]
-
-        if kolon not in df.columns:
-            continue
-
-        dosya_adi = alias_map.get(dosya, dosya) if alias_map else dosya
-        label = f'U{pid} {dosya_adi} {kolon}' if unit == 'Default Units' else f'U{pid} {dosya_adi} {kolon} [{unit}]'
-        gercek_label = f'{dosya} | {kolon}'
-
-        if mode == 'realtime':
-            zaman = pd.to_numeric(df.iloc[:, 0], errors='coerce')
-            veri = temiz_veriye_donustur(df[kolon])
-
-            temp_df = pd.DataFrame({'t': zaman, 'v': veri}).dropna(subset=['t', 'v'])
-            if temp_df.empty:
-                continue
-
-            temp_df = temp_df.sort_values('t')
-            t_plot = temp_df['t'].to_numpy() - temp_df['t'].iloc[0]
-            v_plot = birim_donustur(temp_df['v'].values, unit)
-
+    try:
+        if mode in ['previous', 'nearest']:
+            ortak_t = ortak_zaman_ekseni(tum_veriler)
+            referans_timeline = ortak_t if len(ortak_t) > 0 else None
         else:
-            if referans_timeline is None or len(referans_timeline) == 0:
+            referans_timeline = None
+
+        for pid, (dosya, kolon) in parametre_map.items():
+
+            unit = units[pid - 1] if pid - 1 < len(units) else 'Default Units'
+
+            if dosya not in tum_veriler:
                 continue
 
-            v_hizali = veriyi_hizala(df, referans_timeline, kolon, mode)
-            v_plot = np.array(birim_donustur(v_hizali, unit), dtype=float)
-            t_plot = referans_timeline.to_numpy()
-            t_plot = t_plot - t_plot[0]  #sıfırla normalize et
+            df = tum_veriler[dosya]
 
-        if v_plot is None:
-            raise ValueError(
-                f"Unit conversion failed: '{dosya} | {kolon}'\n"
-                f"Selected conversion '{unit}' could not be applied to this data."
-            )
+            if kolon not in df.columns:
+                continue
 
-        plotted_data[gercek_label] = (t_plot, v_plot)  #tam veri
+            dosya_adi = alias_map.get(dosya, dosya) if alias_map else dosya
+            label = f'U{pid} {dosya_adi} {kolon}' if unit == 'Default Units' else f'U{pid} {dosya_adi} {kolon} [{unit}]'
+            gercek_label = f'{dosya} | {kolon}'
 
-        line, = ax.step(t_plot, v_plot, where='post', label=label)
-        line.gercek_label = gercek_label
-        lines.append(line)
+            if mode == 'realtime':
+                zaman = pd.to_numeric(df.iloc[:, 0], errors='coerce')
+                veri = temiz_veriye_donustur(df[kolon])
 
-    #Eksen etiketleri
-    ax.set_ylabel('Value')
-    ax.set_xlabel('Time (s)')
+                temp_df = pd.DataFrame({'t': zaman, 'v': veri}).dropna(subset=['t', 'v'])
+                if temp_df.empty:
+                    continue
 
-    #Y ekseni
-    ymin, ymax = ax.get_ylim()
-    if ymin == ymax:
-        ax.set_ylim(ymin - 1, ymax + 1)
+                temp_df = temp_df.sort_values('t')
+                t_plot = temp_df['t'].to_numpy() - temp_df['t'].iloc[0]
+                v_plot = birim_donustur(temp_df['v'].values, unit)
 
-    if ax.get_lines():
-        legend = ax.legend(loc='upper left')
-    else:
-        legend = None
+            else:
+                if referans_timeline is None or len(referans_timeline) == 0:
+                    continue
 
-    if legend is not None:
-        legend.set_draggable(True)
-        for legline in legend.get_lines():
-            legline.set_linewidth(6)
-            legline.set_markersize(10)
-        for handle in legend.legend_handles:
-            if hasattr(handle, 'set_sizes'):
-                handle.set_sizes([80])
+                v_hizali = veriyi_hizala(df, referans_timeline, kolon, mode)
+                v_plot = np.array(birim_donustur(v_hizali, unit), dtype=float)
+                t_plot = referans_timeline.to_numpy()
+                t_plot = t_plot - t_plot[0]  #sıfırla normalize et
 
-    ax.grid(True)
+            if v_plot is None:
+                plt.close(fig)
+                raise ValueError(
+                    f"Unit conversion failed: '{dosya} | {kolon}'\n"
+                    f"Selected conversion '{unit}' could not be applied to this data."
+                )
+
+            plotted_data[gercek_label] = (t_plot, v_plot)  #tam veri
+
+            line, = ax.step(t_plot, v_plot, where='post', label=label)
+            line.gercek_label = gercek_label
+            lines.append(line)
+
+        #Eksen etiketleri
+        ax.set_ylabel('Value')
+        ax.set_xlabel('Time (s)')
+
+        #Y ekseni
+        ymin, ymax = ax.get_ylim()
+        if ymin == ymax:
+            ax.set_ylim(ymin - 1, ymax + 1)
+
+        if ax.get_lines():
+            legend = ax.legend(loc='upper left')
+        else:
+            legend = None
+
+        if legend is not None:
+            legend.set_draggable(True)
+            for legline in legend.get_lines():
+                legline.set_linewidth(6)
+                legline.set_markersize(10)
+            for handle in legend.legend_handles:
+                if hasattr(handle, 'set_sizes'):
+                    handle.set_sizes([80])
+
+        ax.grid(True)
+
+    except Exception:
+        plt.close(fig)
+        raise
 
     return fig, lines, plotted_data, uyarilar

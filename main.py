@@ -5,6 +5,8 @@ import pandas as pd
 from scipy.io import savemat
 import numpy as np
 import json
+import locale
+import matplotlib.pyplot as plt
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor
 from matplotlib.backend_bases import MouseEvent
@@ -65,6 +67,7 @@ class GrafikPenceresi(QMainWindow):
         self.lines = []
         self.line_map = {}
         self.pick_connection = None
+        self.press_conection = None
         self.scatter_list = []
 
         #Tab sistemi
@@ -98,6 +101,18 @@ class GrafikPenceresi(QMainWindow):
         matlab_layout.addWidget(self.matlab_listesi)
         matlab_layout.addWidget(self.btn_matlab_export)
         self.tabs.addTab(self.matlab_widget, 'Matlab Export')
+
+        #CSV Export Sekmesş
+        self.csv_widget = QWidget()
+        csv_layout = QVBoxLayout(self.csv_widget)
+        self.csv_listesi = QListWidget()
+        self.csv_listesi.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.btn_csv_export = QPushButton('Export.csv')
+        self.btn_csv_export.clicked.connect(self.csv_export)
+        csv_layout.addWidget(QLabel('select parameters to export:'))
+        csv_layout.addWidget(self.csv_listesi)
+        csv_layout.addWidget(self.btn_csv_export)
+        self.tabs.addTab(self.csv_widget, 'CSV Export')
 
         #Operations Sekmesi
         self.ops_widget = QWidget()
@@ -210,6 +225,8 @@ class GrafikPenceresi(QMainWindow):
 
         if hasattr(self, "pick_connection") and self.pick_connection:
             self.canvas.mpl_disconnect(self.pick_connection)
+        if hasattr(self, "press_connection") and self.press_connection:
+            self.canvas.mpl_disconnect(self.press_connection)
 
         #Legend handle'ları hem line hem scatter için
         legend_handles = legend.legend_handles
@@ -219,7 +236,7 @@ class GrafikPenceresi(QMainWindow):
             self.line_map[legend_handle] = orig_obj
 
         self.pick_connection = self.canvas.mpl_connect("pick_event", self.on_pick)
-        self.canvas.mpl_connect("button_press_event", self.legend_sag_tik)
+        self.press_connection = self.canvas.mpl_connect("button_press_event", self.legend_sag_tik)
 
     def ops_dropdown_guncelle(self):
         #Sol ve sağ operand dropdown'larını mevcut U parametreleri + Op sonuçlarıyla güncelle
@@ -304,14 +321,21 @@ class GrafikPenceresi(QMainWindow):
         silinecek_isimler = set(bagimli) | {op_isim}
         for sil_isim in silinecek_isimler:
             if sil_isim in self.op_data:
-            # MATLAB listesindeki eşleşen etiketi bul ve kaldır
                 sil_label = f"{sil_isim} {self.op_data[sil_isim][2]}"
                 items = self.matlab_listesi.findItems(sil_label, Qt.MatchFlag.MatchExactly)
                 for item in items:
                     self.matlab_listesi.takeItem(self.matlab_listesi.row(item))
+
+                # CSV — del'den ÖNCE, if'in İÇİNDE
+                sil_label_csv = f"{sil_isim} {self.op_data[sil_isim][2]}"
+                items_csv = self.csv_listesi.findItems(sil_label_csv, Qt.MatchFlag.MatchExactly)
+                for item in items_csv:
+                    self.csv_listesi.takeItem(self.csv_listesi.row(item))
+
                 del self.op_data[sil_isim]
 
         satirlar_silinecek = []
+
         for row in range(self.op_listesi.rowCount()):
             item = self.op_listesi.item(row, 0)
             if item and item.text() in silinecek_isimler:
@@ -427,30 +451,28 @@ class GrafikPenceresi(QMainWindow):
             return
         ax = self.canvas.figure.axes[0]
 
-        #Eski Op çizgilerini tamamen temizle
+        # Eski Op çizgilerini temizle
         for line in ax.get_lines()[:]:
             if getattr(line, "op_cizgisi", False):
                 line.remove()
 
-        #Legend tamamen sıfırlansın
+        # Legend sıfırla
         legend = ax.get_legend()
         if legend:
             legend.remove()
 
-        #Toggle map temizle
+        # Toggle map temizle
         self.line_map = {}
 
-        #Önceki Op çizgilerini temizle
-        mevcut_matlab = [self.matlab_listesi.item(i).text()
-                         for i in range(self.matlab_listesi.count())]
-        for label in mevcut_matlab:
-            op_isimleri = list(self.op_data.keys())
-            for op_isim in op_isimleri:
-                op_label = f"{op_isim} {self.op_data[op_isim][2]}"
-                if label == op_label:
-                    items = self.matlab_listesi.findItems(label, Qt.MatchFlag.MatchExactly)
-                    for item in items:
-                        self.matlab_listesi.takeItem(self.matlab_listesi.row(item))
+        # csv_listesi ve matlab_listesi'nden eski Op itemlarını tamamen temizle
+        for liste in [self.matlab_listesi, self.csv_listesi]:
+            silinecek = []
+            for i in range(liste.count()):
+                item = liste.item(i)
+                if item and any(item.text().startswith(f"Op{n} ") for n in range(1, self._op_sayac + 1)):
+                    silinecek.append(i)
+            for i in reversed(silinecek):
+                liste.takeItem(i)
 
         yeni_op_lines = []
 
@@ -480,6 +502,7 @@ class GrafikPenceresi(QMainWindow):
                                  for i in range(self.matlab_listesi.count())]
                 if op_label not in mevcut_matlab:
                     self.matlab_listesi.addItem(op_label)
+                    self.csv_listesi.addItem(op_label)
                 continue
 
             t_sol, v_sol = self._operand_verisini_al(sol)
@@ -534,6 +557,7 @@ class GrafikPenceresi(QMainWindow):
             op_label = f"{op_isim} {aciklama}"
             if op_label not in mevcut_matlab:
                 self.matlab_listesi.addItem(op_label)
+                self.csv_listesi.addItem(op_label)
 
         u_lines = [l for l in ax.get_lines() if not getattr(l, "op_cizgisi", False)]
 
@@ -555,6 +579,25 @@ class GrafikPenceresi(QMainWindow):
     def closeEvent(self, event):
         if self in self.parent_ref.acik_grafikler:
             self.parent_ref.acik_grafikler.remove(self)
+
+        # Matplotlib figure'ı RAM'den temizle
+        try:
+            fig = self.canvas.figure
+            fig.clear()
+            plt.close(fig)
+        except (AttributeError, TypeError):
+            pass
+
+        # Büyük veri referanslarını serbest bırak
+        self.plotted_data.clear()
+        self.scatter_data.clear()
+        self.op_data.clear()
+        self.label_map.clear()
+        self.ters_label_map.clear()
+        self.lines.clear()
+        self.line_map.clear()
+        self.scatter_list.clear()
+
         super().closeEvent(event)
 
     def legend_sag_tik(self, event):
@@ -712,6 +755,12 @@ class GrafikPenceresi(QMainWindow):
             if mitem and mevcut_gosterim in mitem.text():
                 mitem.setText(mitem.text().replace(mevcut_gosterim, yeni_alias))
 
+        # CSV güncelle
+        for i in range(self.csv_listesi.count()):
+            citem = self.csv_listesi.item(i)
+            if citem and mevcut_gosterim in citem.text():
+                citem.setText(citem.text().replace(mevcut_gosterim, yeni_alias))
+
         #ops yeniden uygulanınca kaybolmasın
         for line in ax.get_lines():
             lbl = str(line.get_label())
@@ -848,6 +897,76 @@ class GrafikPenceresi(QMainWindow):
         savemat(dosya_yolu, mat_dict)
         QMessageBox.information(self, "Info", "Export completed.")
 
+    def csv_export(self):
+        secili = [item.text() for item in self.csv_listesi.selectedItems()]
+        if not secili:
+            QMessageBox.warning(self, "Warning", "Please select at least one parameter.")
+            return
+
+        dosya_yolu, _ = QFileDialog.getSaveFileName(self, "Save .csv file", "", "CSV Files (*.csv)")
+        if not dosya_yolu:
+            return
+        if not dosya_yolu.endswith('.csv'):
+            dosya_yolu += '.csv'
+
+        # Sisteme göre otomatik ayırıcı seç
+        try:
+            locale.setlocale(locale.LC_ALL, '')
+            conv = locale.localeconv()
+            decimal_point = conv.get('decimal_point', '.')
+            sep = ';' if decimal_point == ',' else ','
+        except (locale.Error, KeyError):
+            sep = ';'  # fallback
+
+        parcalar = []
+
+        for label, (t_arr, v_arr) in self.plotted_data.items():
+            u_ismi = self.label_map.get(label, label)
+            if u_ismi in secili:
+                df_par = pd.DataFrame({
+                    f"{u_ismi}_t": pd.Series(np.asarray(t_arr)),
+                    f"{u_ismi}_v": pd.Series(np.asarray(v_arr))
+                })
+                parcalar.append(df_par)
+
+        if hasattr(self, 'scatter_data'):
+            for label, (t_arr, v_arr) in self.scatter_data.items():
+                if label in secili:
+                    df_par = pd.DataFrame({
+                        f"{label}_t": pd.Series(np.array(t_arr)),
+                        f"{label}_v": pd.Series(np.array(v_arr))
+                    })
+                    parcalar.append(df_par)
+
+        if hasattr(self, 'op_data'):
+            for op_isim, kayit in self.op_data.items():
+                op_label = f"{op_isim} {kayit[2]}"
+                if op_label in secili and kayit[0] is not None:
+                    df_par = pd.DataFrame({
+                        f"{op_label}_t": pd.Series(np.asarray(kayit[0])),
+                        f"{op_label}_v": pd.Series(np.asarray(kayit[1]))
+                    })
+                    parcalar.append(df_par)
+
+        if parcalar:
+            df_final = pd.concat(parcalar, axis=1)
+
+            # İsim çakışması kontrolü
+            if os.path.exists(dosya_yolu):
+                base, ext = os.path.splitext(dosya_yolu)
+                sayac = 1
+                while os.path.exists(dosya_yolu):
+                    dosya_yolu = f"{base}_{sayac}{ext}"
+                    sayac += 1
+
+            df_final.to_csv(
+                dosya_yolu,
+                index=False,
+                sep=sep,
+                encoding='utf-8-sig',
+            )
+            QMessageBox.information(self, "Info", f"Export completed.\nSaved as: {os.path.basename(dosya_yolu)}")
+
 class AnaPencere(QWidget):
     def __init__(self):
         super().__init__()
@@ -859,7 +978,6 @@ class AnaPencere(QWidget):
         self.data_cache = {}
         self.kolon_cache = {}
         self.alias_map = {}
-        self.kategorize_dosyalar = {'Stanag': [], 'EML LRU': [], 'FML': [], 'FCA': []}
 
         self.error_results = {}
         self.error_loader = None
@@ -874,7 +992,6 @@ class AnaPencere(QWidget):
         hata_butonlari = QHBoxLayout()
         plot_butonlari = QHBoxLayout()
         figure_butonlari = QHBoxLayout()
-        data_btnlari = QHBoxLayout()
 
         left_panel   = QVBoxLayout()
         center_panel = QVBoxLayout()
@@ -898,7 +1015,18 @@ class AnaPencere(QWidget):
         self.dosya_listesi.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.btnsecilenleri_getir = QPushButton('Get Vars')
         self.parametre_listesi.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.btnparametre_temizle = QPushButton('🧹Clear Variable Selection')
+        self.alias_radio_group = QButtonGroup()
+        self.alias_radio_group.setExclusive(True)
+        self.radio_use_alias = QRadioButton('Use ALias')
+        self.radio_no_alias = QRadioButton("Dont't Use Alias")
+        self.alias_radio_group.addButton(self.radio_use_alias)
+        self.alias_radio_group.addButton(self.radio_no_alias)
+        self.radio_use_alias.setChecked(True)
+        alias_radio_layout = QHBoxLayout()
+        alias_radio_layout.addWidget(self.radio_use_alias)
+        alias_radio_layout.addWidget(self.radio_no_alias)
+        self.btn_parametre_temizle = QPushButton('🧹Clear Variable Selection')
+
 
         self.parametre_listesi.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.parametre_listesi.customContextMenuRequested.connect(self.parametre_sag_tik)
@@ -918,7 +1046,8 @@ class AnaPencere(QWidget):
         self.btn_Klasor_sec.clicked.connect(self.klasor_sec)
         self.btndosya_temizle.clicked.connect(self.dosya_secimi_temizle)
         self.btnsecilenleri_getir.clicked.connect(self.secilenleri_getir)
-        self.btnparametre_temizle.clicked.connect(self.parametre_secimi_temizle)
+        self.alias_radio_group.buttonClicked.connect(self.alias_modu_degisti)
+        self.btn_parametre_temizle.clicked.connect(self.parametre_secimi_temizle)
         self.btn_new_figure.clicked.connect(self.yeni_figur_olustur)
         self.btn_plot.clicked.connect(self.plot_bas)
         self.btn_delete_figure.clicked.connect(self.figure_sil)
@@ -926,12 +1055,6 @@ class AnaPencere(QWidget):
         self.btn_add_to_figure.clicked.connect(self.parametreyi_figure_ekle)
         self.btn_analyze_errors.clicked.connect(self.analyze_errors)
         self.btn_error_plot.clicked.connect(self.error_plot)
-
-        #Get Data butonları
-        self.btn_get_flight_data = QPushButton('Get Flight Data')
-        self.btn_get_flight_data.clicked.connect(self.get_flight_data)
-        self.btn_get_all_data = QPushButton('Get All Data')
-        self.btn_get_all_data.clicked.connect(self.get_all_data)
 
         #Mode seçici
         self.mode_groupbox  = QGroupBox('Time Mode')
@@ -979,12 +1102,6 @@ class AnaPencere(QWidget):
         #LEFT PANEL
         left_panel.addWidget(QLabel('CSV File in the Folder'))
         left_panel.addWidget(self.btn_Klasor_sec)
-        left_panel.addWidget(QLabel('Categories'))
-        left_panel.addLayout(kategori_satir1)
-        left_panel.addLayout(kategori_satir2)
-        data_btnlari.addWidget(self.btn_get_flight_data)
-        data_btnlari.addWidget(self.btn_get_all_data)
-        left_panel.addLayout(data_btnlari)
         left_panel.addWidget(QLabel('Search File'))
         left_panel.addWidget(self.dosya_Arama)
         left_panel.addWidget(self.dosya_listesi)
@@ -993,9 +1110,10 @@ class AnaPencere(QWidget):
         #CENTER PANEL
         center_panel.addWidget(QLabel('Selected Variables'))
         center_panel.addWidget(self.btnsecilenleri_getir)
+        center_panel.addLayout(alias_radio_layout)
         center_panel.addWidget(self.parametre_arama)
         center_panel.addWidget(self.parametre_listesi)
-        center_panel.addWidget(self.btnparametre_temizle)
+        center_panel.addWidget(self.btn_parametre_temizle)
 
         #RIGHT PANEL
         right_panel.addWidget(self.mode_groupbox)
@@ -1026,9 +1144,14 @@ class AnaPencere(QWidget):
             return
 
         self.klasor = klasor
-        self.data_cache = {}
-        self.kolon_cache = {}
-        self.alias_map = {}
+        self.data_cache.clear()
+        self.kolon_cache.clear()
+        self.alias_map.clear()
+
+        for pencere in self.acik_grafikler[:]:
+            pencere.close()
+        self.error_results.clear()
+
         try:
             from error_analyzer import ErrorClassLoader
             uygulama_klasoru = _get_app_dir()
@@ -1058,54 +1181,10 @@ class AnaPencere(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "Warning", f"Alias file could not be loaded: {e}")
 
-        self.kategorize_dosyalar = {'Stanag': [], 'EML LRU': [], 'FML': [], 'FCA': []}
-
-        for f in os.listdir(klasor):
-            if not f.endswith('.csv'):
-                continue
-            f_upper   = f.upper()
-            full_path = os.path.join(klasor, f)
-            if 'EML_STANAGUDP' in f_upper:
-                self.kategorize_dosyalar['Stanag'].append(full_path)
-            elif 'EML' in f_upper:
-                self.kategorize_dosyalar['EML LRU'].append(full_path)
-            elif 'FML' in f_upper:
-                self.kategorize_dosyalar['FML'].append(full_path)
-            elif 'FCA' in f_upper:
-                self.kategorize_dosyalar['FCA'].append(full_path)
-
-    #GET DATA
-    def get_flight_data(self):
-        if not self.klasor:
-            QMessageBox.warning(self, 'Warning', 'Please select a folder first!')
-            return
-        secili_butonlar = [btn for btn in self.kategori_group.buttons() if btn.isChecked()]
-
-        if not secili_butonlar:
-            QMessageBox.information(self, 'Warning', "You haven't selected a category; all files will be listed.")
-            self.dosya_listesi.clear()
-            for lst in self.kategorize_dosyalar.values():
-                self.dosya_listesi.addItems([os.path.basename(f) for f in lst])
-            return
-
         self.dosya_listesi.clear()
-        for btn in secili_butonlar:
-            kategori = btn.text()
-            dosyalar = [os.path.basename(p) for p in self.kategorize_dosyalar.get(kategori, [])]
-            self.dosya_listesi.addItems(dosyalar)
-        self.dosya_listesi.scrollToTop()
-
-    def get_all_data(self):
-        if not self.klasor:
-            QMessageBox.warning(self, 'Warning', 'Please select a folder first!')
-            return
-
-        for btn in self.kategori_group.buttons():
-            btn.setChecked(False)
-        self.dosya_listesi.clear()
-        for lst in self.kategorize_dosyalar.values():
-            for f in lst:
-                self.dosya_listesi.addItem(os.path.basename(f))
+        for f in os.listdir(self.klasor):
+            if f.endswith('.csv'):
+                self.dosya_listesi.addItem(f)
         self.dosya_listesi.scrollToTop()
 
     #DOSYA / ARAMA
@@ -1138,7 +1217,10 @@ class AnaPencere(QWidget):
                     df_cols = pd.read_csv(dosya_yolu, skiprows=1, sep='\t', nrows=0)
                     self.kolon_cache[dosya] = list(df_cols.columns)
                 for kolon in self.kolon_cache[dosya]:
-                    dosya_adi = self.alias_map.get(dosya, dosya)
+                    if self.radio_use_alias.isChecked():
+                        dosya_adi = self.alias_map.get(dosya, dosya)
+                    else:
+                        dosya_adi = dosya
                     self.parametre_listesi.addItem(f'{dosya_adi} | {kolon}')
             except Exception as e:
                 yuklenemeyen.append(f"{dosya}: {str(e)}")
@@ -1147,6 +1229,105 @@ class AnaPencere(QWidget):
             QMessageBox.warning(
                 self, 'Partial Load',
                 'Some files unavailable:\n' + '\n'.join(yuklenemeyen))
+
+    def alias_modu_degisti(self):
+        kullan = self.radio_use_alias.isChecked()
+        ters_alias = {v: k for k, v in self.alias_map.items()}
+
+        #Parametre listesini güncelle
+        if self.parametre_listesi.count() > 0:
+            self.secilenleri_getir()
+
+        #Figure params güncelle
+        for fig_no, fig_data in self.figures.items():
+            yeni_params = []
+            for p in fig_data['params']:
+                if ' | ' not in p:
+                    yeni_params.append(p)
+                    continue
+                dosya_adi, kolon = p.split(' | ', 1)
+                orijinal = ters_alias.get(dosya_adi, dosya_adi)
+                gosterim = self.alias_map.get(orijinal, orijinal) if kullan else orijinal
+                yeni_params.append(f'{gosterim} | {kolon}')
+            fig_data['params'] = yeni_params
+        self.figure_listesini_guncelle()
+
+        #Açık grafik pencerelerini güncelle
+        for pencere in self.acik_grafikler:
+            ax = pencere.canvas.figure.axes[0]
+
+            def guncelle(metin):
+                if not metin:
+                    return metin
+                for original, alias in self.alias_map.items():
+                    if kullan:
+                        metin = metin.replace(original, alias)
+                    else:
+                        metin = metin.replace(alias, original)
+                return metin
+
+            #matlab_listesi güncelle
+            for i in range(pencere.matlab_listesi.count()):
+                item = pencere.matlab_listesi.item(i)
+                if item:
+                    item.setText(guncelle(item.text()))
+
+            #CSV güncelle
+            for i in range(pencere.csv_listesi.count()):
+                item = pencere.csv_listesi.item(i)
+                if item:
+                    item.setText(guncelle(item.text()))
+
+            #label_map ve ters_label_map güncelle
+            yeni_label_map = {}
+            for g_label, u_label in pencere.label_map.items():
+                yeni_label_map[guncelle(g_label)] = guncelle(u_label)
+            pencere.label_map = yeni_label_map
+            pencere.ters_label_map = {v: k for k, v in yeni_label_map.items()}
+
+            #op_data güncelle
+            yeni_op_data = {}
+            for op_isim, kayit in pencere.op_data.items():
+                t, v, aciklama, sol, op_char, sag, sabit_mi = kayit
+                yeni_op_data[op_isim] = (
+                    t, v,
+                    guncelle(aciklama),
+                    guncelle(sol),
+                    op_char,
+                    guncelle(sag) if not sabit_mi else sag,
+                    sabit_mi
+                )
+            pencere.op_data = yeni_op_data
+            pencere.ops_dropdown_guncelle()
+
+            #op_listesi UI güncelle
+            for row in range(pencere.op_listesi.rowCount()):
+                item = pencere.op_listesi.item(row,1)
+                if item:
+                    item.setText(guncelle(item.text()))
+
+            #Legend ve line label'ları güncelle
+            legend = ax.get_legend()
+            if legend:
+                for t in legend.get_texts():
+                    t.set_text(guncelle(t.get_text()))
+
+            for line in ax.get_lines():
+                line.set_label(guncelle(str(line.get_label())))
+
+            #scatter güncelle
+            for coll in ax.collections:
+                coll.set_label(guncelle(str(coll.get_label())))
+                if hasattr(coll, 'gercek_label'):
+                    coll.gercek_label = guncelle(str(coll.gercek_label))
+
+            #scatter_data güncelle
+            yeni_scatter_data = {}
+            for lbl, deger in pencere.scatter_data.items():
+                yeni_scatter_data[guncelle(lbl)] = deger
+            pencere.scatter_data = yeni_scatter_data
+
+            pencere.canvas.draw_idle()
 
     def parametre_ara(self, text):
         for i in range(self.parametre_listesi.count()):
@@ -1235,6 +1416,12 @@ class AnaPencere(QWidget):
                     mitem = pencere.matlab_listesi.item(i)
                     if mitem and eski_alias in mitem.text():
                         mitem.setText(mitem.text().replace(eski_alias, yeni_ad))
+
+                #CSV güncelle
+                for i in range(pencere.csv_listesi.count()):
+                    citem = pencere.csv_listesi.item(i)
+                    if citem and eski_alias in citem.text():
+                        citem.setText(citem.text().replace(eski_alias, yeni_ad))
 
                 # op_listesi UI
                 for row in range(pencere.op_listesi.rowCount()):
@@ -1440,22 +1627,24 @@ class AnaPencere(QWidget):
             mode = self.figures[self.current_figure]['mode']
             units = self.figures[self.current_figure]['units']
 
+            aktif_alias = self.alias_map if self.radio_use_alias.isChecked() else {}
+
+            # Aynı figure_no'dan eski pencereyi kapat
+            for pencere in self.acik_grafikler[:]:
+                if pencere.figure_no == self.current_figure:
+                    pencere.close()
+
             fig, lines, plotted_data, uyarilar = grafikleri_ciz(
                 tum_veriler,
                 parametre_map,
                 mode,
                 self.current_figure,
                 units=units,
-                alias_map=self.alias_map
+                alias_map=aktif_alias
             )
 
             if uyarilar:
                 QMessageBox.warning(self, "Uyarı", "\n".join(uyarilar))
-
-            #Aynı figure_no'dan eski pencereyi kapat
-            for pencere in self.acik_grafikler[:]:
-                if pencere.figure_no == self.current_figure:
-                    pencere.close()
 
             popup_window = GrafikPenceresi(fig, self.current_figure, mode, self)
             popup_window.plotted_data = plotted_data
@@ -1467,6 +1656,7 @@ class AnaPencere(QWidget):
 
             for gercek, u_ismi in popup_window.label_map.items():
                 popup_window.matlab_listesi.addItem(u_ismi)
+                popup_window.csv_listesi.addItem(u_ismi)
 
             self.acik_grafikler.append(popup_window)
 
@@ -1692,6 +1882,7 @@ class AnaPencere(QWidget):
 
         for sc in scatter_list:
             popup.matlab_listesi.addItem(sc.get_label())
+            popup.csv_listesi.addItem(sc.get_label())
 
         #Op çizgileri dahil tüm mevcut line'ları al — legend enable_legend_toggle içinde oluştur
         guncel_lines = [l for l in ax.get_lines() if l.get_label() and not l.get_label().startswith('_')]

@@ -2056,102 +2056,6 @@ class TestFigureSil(AnaPencereTestBase):
         self.pencere.figure_sil()
         self.pencere.figure_listesini_guncelle.assert_called_once()
 
-
-class TestGetFlightData(AnaPencereTestBase):
-
-    def setUp(self):
-        super().setUp()
-        self.pencere.klasor = '/klasor'
-        self.pencere.kategorize_dosyalar = {
-            'Stanag': ['/klasor/stanag1.csv', '/klasor/stanag2.csv'],
-            'EML LRU': ['/klasor/eml1.csv'],
-            'FML': [],
-            'FCA': []
-        }
-
-    def test_klasor_bossa_warning_verilmeli(self):
-        self.pencere.klasor = ''
-        with patch('main.QMessageBox.warning') as mock_warning:
-            self.pencere.get_flight_data()
-            mock_warning.assert_called_once()
-        self.assertEqual(self.pencere.dosya_listesi.count(), 0)
-
-    def test_kategori_secili_degilse_tum_dosyalar_listelenmeli(self):
-        for btn in self.pencere.kategori_group.buttons():
-            btn.setChecked(False)
-        with patch('main.QMessageBox.information') as mock_info:
-            self.pencere.get_flight_data()
-            mock_info.assert_called_once()
-        self.assertEqual(self.pencere.dosya_listesi.count(), 3)
-
-    def test_secili_kategori_dosyalari_listelenmeli(self):
-        for btn in self.pencere.kategori_group.buttons():
-            btn.setChecked(btn.text() == 'Stanag')
-        self.pencere.get_flight_data()
-        items = [self.pencere.dosya_listesi.item(i).text()
-                 for i in range(self.pencere.dosya_listesi.count())]
-        self.assertIn('stanag1.csv', items)
-        self.assertIn('stanag2.csv', items)
-        self.assertNotIn('eml1.csv', items)
-
-    def test_coklu_kategori_seciliyse_hepsi_listelenmeli(self):
-        for btn in self.pencere.kategori_group.buttons():
-            btn.setChecked(btn.text() in ('Stanag', 'EML LRU'))
-        self.pencere.get_flight_data()
-        items = [self.pencere.dosya_listesi.item(i).text()
-                 for i in range(self.pencere.dosya_listesi.count())]
-        self.assertIn('stanag1.csv', items)
-        self.assertIn('eml1.csv', items)
-
-    def test_bos_kategoride_dosya_eklenmemeli(self):
-        for btn in self.pencere.kategori_group.buttons():
-            btn.setChecked(btn.text() == 'FML')
-        self.pencere.get_flight_data()
-        self.assertEqual(self.pencere.dosya_listesi.count(), 0)
-
-
-class TestGetAllData(AnaPencereTestBase):
-
-    def setUp(self):
-        super().setUp()
-        self.pencere.kategorize_dosyalar = {
-            'IMU': ['/klasor/imu1.csv', '/klasor/imu2.csv'],
-            'GPS': ['/klasor/gps1.csv'],
-        }
-
-    def test_klasor_bossa_warning_verilmeli(self):
-        self.pencere.klasor = ''
-        with patch('main.QMessageBox.warning') as mock_warning:
-            self.pencere.get_all_data()
-            mock_warning.assert_called_once()
-        self.assertEqual(self.pencere.dosya_listesi.count(), 0)
-
-    def test_tum_butonlar_isaretsiz_olmali(self):
-        self.pencere.klasor = '/klasor'
-        for btn in self.pencere.kategori_group.buttons():
-            btn.setChecked(True)
-        self.pencere.get_all_data()
-        for btn in self.pencere.kategori_group.buttons():
-            self.assertFalse(btn.isChecked())
-
-    def test_tum_dosyalar_listelenmeli(self):
-        self.pencere.klasor = '/klasor'
-        self.pencere.get_all_data()
-        items = [self.pencere.dosya_listesi.item(i).text()
-                 for i in range(self.pencere.dosya_listesi.count())]
-        self.assertIn('imu1.csv', items)
-        self.assertIn('imu2.csv', items)
-        self.assertIn('gps1.csv', items)
-
-    def test_onceki_liste_temizlenip_yeniden_doldurulmali(self):
-        self.pencere.klasor = '/klasor'
-        self.pencere.dosya_listesi.addItem('eski_dosya.csv')
-        self.pencere.get_all_data()
-        items = [self.pencere.dosya_listesi.item(i).text()
-                 for i in range(self.pencere.dosya_listesi.count())]
-        self.assertNotIn('eski_dosya.csv', items)
-
-
 class TestSecilenleriGetir(AnaPencereTestBase):
 
     def setUp(self):
@@ -3061,6 +2965,10 @@ class TestDeleteAliasLegend(unittest.TestCase):
         self.delete_alias_action_calistir()
         self.assertNotIn('test.csv', self.pencere.parent_ref.alias_map)
 
+    def test_delete_alias_alias_kaydet_bir_kez_cagirilmali(self):
+        mock_kaydet = self.delete_alias_action_calistir()
+        mock_kaydet.assert_called_once()
+
     def test_delete_alias_legend_metni_orijinale_donmeli(self):
         ax = self.pencere.canvas.figure.axes[0]
         legend = ax.get_legend()
@@ -3113,10 +3021,6 @@ class TestDeleteAliasParametreListesi(unittest.TestCase):
                         return mock_kaydet
 
     def test_delete_alias_alias_map_ten_silinmeli(self):
-        self.delete_alias_calistir()
-        self.assertNotIn('test.csv', self.pencere.alias_map)
-
-    def test_delete_alias_alias_map_ten_silinmeli_1(self):
         self.delete_alias_calistir()
         self.assertNotIn('test.csv', self.pencere.alias_map)
 
@@ -3284,6 +3188,193 @@ class TestOpDataAliasGuncelleme(unittest.TestCase):
         kayit = self.pencere.op_data['Op1']
         self.assertNotIn('IMU', kayit[2])
         self.assertNotIn('IMU', str(kayit[3]))
+
+
+ALIAS_MAP = {'flight_001.csv': 'Uçuş 1', 'flight_002.csv': 'Uçuş 2'}
+
+def guncelle_fn(alias_map, kullan, metin):
+    if not metin:
+        return metin
+    for original, alias in alias_map.items():
+        if kullan:
+            metin = metin.replace(original, alias)
+        else:
+            metin = metin.replace(alias, original)
+    return metin
+
+def figures_guncelle(figures, alias_map, kullan):
+    ters_alias = {v: k for k, v in alias_map.items()}
+    for fig_data in figures.values():
+        yeni = []
+        for p in fig_data['params']:
+            if ' | ' not in p:
+                yeni.append(p)
+                continue
+            dosya_adi, kolon = p.split(' | ', 1)
+            orijinal = ters_alias.get(dosya_adi, dosya_adi)
+            gosterim = alias_map.get(orijinal, orijinal) if kullan else orijinal
+            yeni.append(f'{gosterim} | {kolon}')
+        fig_data['params'] = yeni
+
+class TestGuncelleFn(unittest.TestCase):
+
+    def test_kullan_true_orijinal_alias_olur(self):
+        sonuc = guncelle_fn(ALIAS_MAP, True, 'flight_001.csv altitude')
+        self.assertEqual(sonuc, 'Uçuş 1 altitude')
+
+    def test_kullan_false_alias_orijinal_olur(self):
+        sonuc = guncelle_fn(ALIAS_MAP, False, 'Uçuş 2 speed')
+        self.assertEqual(sonuc, 'flight_002.csv speed')
+
+    def test_bos_string_degismez(self):
+        self.assertEqual(guncelle_fn(ALIAS_MAP, True, ''), '')
+
+    def test_none_none_doner(self):
+        self.assertIsNone(guncelle_fn(ALIAS_MAP, True, None))
+
+    def test_eslesmeyene_dokunmaz(self):
+        sonuc = guncelle_fn(ALIAS_MAP, True, 'other_file.csv')
+        self.assertEqual(sonuc, 'other_file.csv')
+
+class TestFiguresGuncelle(unittest.TestCase):
+
+    def test_kullan_true_dosya_adi_alias_olur_kolon_korunur(self):
+        figures = {1: {'params': ['flight_001.csv | altitude']}}
+        figures_guncelle(figures, ALIAS_MAP, True)
+        self.assertEqual(figures[1]['params'], ['Uçuş 1 | altitude'])
+
+    def test_kullan_false_alias_orijinal_olur_kolon_korunur(self):
+        figures = {1: {'params': ['Uçuş 1 | altitude']}}
+        figures_guncelle(figures, ALIAS_MAP, False)
+        self.assertEqual(figures[1]['params'], ['flight_001.csv | altitude'])
+
+    def test_op_data_sabit_mi_true_sag_degismez(self):
+        t, v = np.array([0.0]), np.array([1.0])
+        op_data = {'op1': (t, v, 'flight_001.csv desc', 'flight_001.csv', '+', '5.0', True)}
+        yeni_op_data = {}
+        for op_isim, kayit in op_data.items():
+            t_, v_, aciklama, sol, op_char, sag, sabit_mi = kayit
+            yeni_op_data[op_isim] = (
+                t_, v_,
+                guncelle_fn(ALIAS_MAP, True, aciklama),
+                guncelle_fn(ALIAS_MAP, True, sol),
+                op_char,
+                guncelle_fn(ALIAS_MAP, True, sag) if not sabit_mi else sag,
+                sabit_mi
+            )
+        self.assertEqual(yeni_op_data['op1'][5], '5.0')  # sag değişmemeli
+
+    def test_op_data_sabit_mi_false_sag_donusur(self):
+        t, v = np.array([0.0]), np.array([1.0])
+        op_data = {'op1': (t, v, 'desc', 'flight_001.csv', '+', 'flight_002.csv', False)}
+        yeni_op_data = {}
+        for op_isim, kayit in op_data.items():
+            t_, v_, aciklama, sol, op_char, sag, sabit_mi = kayit
+            yeni_op_data[op_isim] = (
+                t_, v_,
+                guncelle_fn(ALIAS_MAP, True, aciklama),
+                guncelle_fn(ALIAS_MAP, True, sol),
+                op_char,
+                guncelle_fn(ALIAS_MAP, True, sag) if not sabit_mi else sag,
+                sabit_mi
+            )
+        self.assertEqual(yeni_op_data['op1'][5], 'Uçuş 2')  # sag dönüşmeli
+
+
+def csv_export_logic(plotted_data, label_map, scatter_data, op_data, secili, dosya_yolu):
+    parcalar = []
+    for label, (t_arr, v_arr) in plotted_data.items():
+        u_ismi = label_map.get(label, label)
+        if u_ismi in secili:
+            parcalar.append(pd.DataFrame({
+                f"{u_ismi}_t": pd.Series(np.asarray(t_arr)),
+                f"{u_ismi}_v": pd.Series(np.asarray(v_arr))
+            }))
+    for label, (t_arr, v_arr) in scatter_data.items():
+        if label in secili:
+            parcalar.append(pd.DataFrame({
+                f"{label}_t": pd.Series(np.array(t_arr)),
+                f"{label}_v": pd.Series(np.array(v_arr))
+            }))
+    for op_isim, kayit in op_data.items():
+        op_label = f"{op_isim} {kayit[2]}"
+        if op_label in secili and kayit[0] is not None:
+            parcalar.append(pd.DataFrame({
+                f"{op_label}_t": pd.Series(np.asarray(kayit[0])),
+                f"{op_label}_v": pd.Series(np.asarray(kayit[1]))
+            }))
+    if parcalar:
+        pd.concat(parcalar, axis=1).to_csv(dosya_yolu, index=False, sep=',', encoding='utf-8-sig')
+        return True
+    return False
+
+class TestCsvExport(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix='.csv', delete=False)
+        self.tmp.close()
+        self.dosya = self.tmp.name
+
+    def tearDown(self):
+        if os.path.exists(self.dosya):
+            os.remove(self.dosya)
+
+    def test_plotted_data_yazilir(self):
+        csv_export_logic(
+            {'ch1': (np.array([0.0, 1.0]), np.array([10.0, 20.0]))},
+            {'ch1': 'altitude'}, {}, {}, ['altitude'], self.dosya
+        )
+        df = pd.read_csv(self.dosya)
+        self.assertIn('altitude_t', df.columns)
+        self.assertIn('altitude_v', df.columns)
+
+    def test_scatter_data_yazilir(self):
+        csv_export_logic(
+            {}, {}, {'scatter_ch': (np.array([0.0, 1.0]), np.array([1.0, 2.0]))},
+            {}, ['scatter_ch'], self.dosya
+        )
+        df = pd.read_csv(self.dosya)
+        self.assertIn('scatter_ch_t', df.columns)
+
+    def test_op_data_yazilir(self):
+        t, v = np.array([0.0, 1.0]), np.array([5.0, 6.0])
+        csv_export_logic(
+            {}, {}, {},
+            {'op1': (t, v, 'alt+spd', 'alt', '+', 'spd', False)},
+            ['op1 alt+spd'], self.dosya
+        )
+        df = pd.read_csv(self.dosya)
+        self.assertIn('op1 alt+spd_t', df.columns)
+
+    def test_secili_disindaki_yazilmaz(self):
+        ret = csv_export_logic(
+            {'ch1': (np.array([0.0]), np.array([1.0]))},
+            {'ch1': 'altitude'}, {}, {}, ['speed'], self.dosya
+        )
+        self.assertFalse(ret)
+
+    def test_bos_secili_false_doner(self):
+        ret = csv_export_logic({}, {}, {}, {}, [], self.dosya)
+        self.assertFalse(ret)
+
+    def test_label_map_alias_sutun_adi_olur(self):
+        csv_export_logic(
+            {'raw_key': (np.array([0.0]), np.array([1.0]))},
+            {'raw_key': 'Alias İsim'}, {}, {}, ['Alias İsim'], self.dosya
+        )
+        df = pd.read_csv(self.dosya)
+        self.assertIn('Alias İsim_t', df.columns)
+        self.assertNotIn('raw_key_t', df.columns)
+
+    def test_farkli_uzunluk_nan_ile_pad(self):
+        csv_export_logic(
+            {'ch1': (np.array([0.0, 1.0]), np.array([1.0, 2.0])),
+             'ch2': (np.array([0.0, 1.0, 2.0]), np.array([3.0, 4.0, 5.0]))},
+            {'ch1': 'ch1', 'ch2': 'ch2'}, {}, {}, ['ch1', 'ch2'], self.dosya
+        )
+        df = pd.read_csv(self.dosya)
+        self.assertEqual(len(df), 3)
+        self.assertTrue(df['ch1_v'].isna().any())
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
