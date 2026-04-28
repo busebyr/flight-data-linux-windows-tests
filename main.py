@@ -731,89 +731,101 @@ class GrafikPenceresi(QMainWindow):
         yeni_alias = yeni.strip()
         alias_map[orijinal_dosya] = yeni_alias
 
+        kullan = self.parent_ref.radio_use_alias.isChecked()
+
         # legend text güncelle
-        for t in legend.get_texts():
-            if mevcut_gosterim in t.get_text():
-                t.set_text(t.get_text().replace(mevcut_gosterim, yeni_alias))
+        if kullan:
+            for t in legend.get_texts():
+                if mevcut_gosterim in t.get_text():
+                    t.set_text(t.get_text().replace(mevcut_gosterim, yeni_alias))
 
         # ters_label_map güncelle
-        yeni_ters_map = {}
-        for u_label, g_label in self.ters_label_map.items():
-            yeni_u_label = u_label.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in u_label else u_label
-            yeni_ters_map[yeni_u_label] = g_label
-        self.ters_label_map = yeni_ters_map
+        if kullan:
+            yeni_ters_map = {}
+            for u_label, g_label in self.ters_label_map.items():
+                yeni_u_label = u_label.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in u_label else u_label
+                yeni_ters_map[yeni_u_label] = g_label
+            self.ters_label_map = yeni_ters_map
 
-        #label_map da güncelle (matlab_export ve ops için)
-        yeni_label_map = {}
-        for g_label, u_label in self.label_map.items():
-            yeni_u_label = u_label.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in u_label else u_label
-            yeni_label_map[g_label] = yeni_u_label
-        self.label_map = yeni_label_map
+            # label_map güncelle
+            yeni_label_map = {}
+            for g_label, u_label in self.label_map.items():
+                yeni_u_label = u_label.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in u_label else u_label
+                yeni_label_map[g_label] = yeni_u_label
+            self.label_map = yeni_label_map
 
-        #matlab_listesi güncelle
-        for i in range(self.matlab_listesi.count()):
-            mitem = self.matlab_listesi.item(i)
-            if mitem and mevcut_gosterim in mitem.text():
-                mitem.setText(mitem.text().replace(mevcut_gosterim, yeni_alias))
+        # matlab_listesi güncelle
+        if kullan:
+            for i in range(self.matlab_listesi.count()):
+                mitem = self.matlab_listesi.item(i)
+                if mitem and mevcut_gosterim in mitem.text():
+                    mitem.setText(mitem.text().replace(mevcut_gosterim, yeni_alias))
 
         # CSV güncelle
-        for i in range(self.csv_listesi.count()):
-            citem = self.csv_listesi.item(i)
-            if citem and mevcut_gosterim in citem.text():
-                citem.setText(citem.text().replace(mevcut_gosterim, yeni_alias))
+        if kullan:
+            for i in range(self.csv_listesi.count()):
+                citem = self.csv_listesi.item(i)
+                if citem and mevcut_gosterim in citem.text():
+                    citem.setText(citem.text().replace(mevcut_gosterim, yeni_alias))
 
-        #ops yeniden uygulanınca kaybolmasın
-        for line in ax.get_lines():
-            lbl = str(line.get_label())
-            if mevcut_gosterim in lbl:
-                line.set_label(lbl.replace(mevcut_gosterim, yeni_alias, ))
+        # ops yeniden uygulanınca kaybolmasın
+        if kullan:
+            for line in ax.get_lines():
+                lbl = str(line.get_label())
+                if mevcut_gosterim in lbl:
+                    line.set_label(lbl.replace(mevcut_gosterim, yeni_alias))
 
         yeni_op_data = {}
         for op_isim, kayit in self.op_data.items():
             t, v, aciklama, sol, op_char, sag, sabit_mi = kayit
             yeni_aciklama = aciklama.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in (
-                        aciklama or '') else aciklama
+                    aciklama or '') else aciklama
             yeni_sol = sol.replace(mevcut_gosterim, yeni_alias) if sol and mevcut_gosterim in sol else sol
             yeni_sag = sag.replace(mevcut_gosterim, yeni_alias) if sag and not sabit_mi and mevcut_gosterim in (
-                        sag or '') else sag
+                    sag or '') else sag
             yeni_op_data[op_isim] = (t, v, yeni_aciklama, yeni_sol, op_char, yeni_sag, sabit_mi)
         self.op_data = yeni_op_data
 
         # op_listesi UI'ını güncelle
-        for row in range(self.op_listesi.rowCount()):
-            aciklama_item = self.op_listesi.item(row, 1)
-            if aciklama_item and mevcut_gosterim in aciklama_item.text():
-                aciklama_item.setText(aciklama_item.text().replace(mevcut_gosterim, yeni_alias))
+        if kullan:
+            for row in range(self.op_listesi.rowCount()):
+                aciklama_item = self.op_listesi.item(row, 1)
+                if aciklama_item and mevcut_gosterim in aciklama_item.text():
+                    aciklama_item.setText(aciklama_item.text().replace(mevcut_gosterim, yeni_alias))
 
         # ops dropdown güncelle
         self.ops_dropdown_guncelle()
 
         # parametre_listesi güncelle
-        for i in range(self.parent_ref.parametre_listesi.count()):
-            pitem = self.parent_ref.parametre_listesi.item(i)
-            if pitem and mevcut_gosterim in pitem.text():
-                pitem.setText(pitem.text().replace(mevcut_gosterim, yeni_alias))
+        if kullan:
+            for i in range(self.parent_ref.parametre_listesi.count()):
+                pitem = self.parent_ref.parametre_listesi.item(i)
+                if pitem and mevcut_gosterim in pitem.text():
+                    pitem.setText(pitem.text().replace(mevcut_gosterim, yeni_alias))
 
         # ax'taki Line2D nesnelerinin label'larını güncelle
-        for line in ax.get_lines():
-            lbl = str(line.get_label())
-            if mevcut_gosterim in lbl:
-                line.set_label(lbl.replace(mevcut_gosterim, yeni_alias))
+        if kullan:
+            for line in ax.get_lines():
+                lbl = str(line.get_label())
+                if mevcut_gosterim in lbl:
+                    line.set_label(lbl.replace(mevcut_gosterim, yeni_alias))
 
         # scatter nesnelerinin label ve gercek_label'larını güncelle
-        for coll in ax.collections:
-            lbl = str(coll.get_label())
-            if mevcut_gosterim in lbl:
-                coll.set_label(lbl.replace(mevcut_gosterim, yeni_alias))
-            if hasattr(coll, 'gercek_label') and mevcut_gosterim in str(coll.gercek_label):
-                coll.gercek_label = coll.gercek_label.replace(mevcut_gosterim, yeni_alias)
+        if kullan:
+            for coll in ax.collections:
+                lbl = str(coll.get_label())
+                if mevcut_gosterim in lbl:
+                    coll.set_label(lbl.replace(mevcut_gosterim, yeni_alias))
+                if hasattr(coll, 'gercek_label') and mevcut_gosterim in str(coll.gercek_label):
+                    coll.gercek_label = coll.gercek_label.replace(mevcut_gosterim, yeni_alias)
 
         # scatter_data dict'ini güncelle
-        yeni_scatter_data = {}
-        for lbl, deger in self.scatter_data.items():
-            yeni_lbl = lbl.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in lbl else lbl
-            yeni_scatter_data[yeni_lbl] = deger
-        self.scatter_data = yeni_scatter_data
+        if kullan:
+            yeni_scatter_data = {}
+            for lbl, deger in self.scatter_data.items():
+                yeni_lbl = lbl.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in lbl else lbl
+                yeni_scatter_data[yeni_lbl] = deger
+            self.scatter_data = yeni_scatter_data
 
         # kaydet ve yenile
         self.parent_ref.alias_kaydet(eski_alias=mevcut_gosterim, orijinal=orijinal_dosya)
@@ -1401,7 +1413,7 @@ class AnaPencere(QWidget):
 
         # Figure listesindeki eski adları güncelle
         if eski_alias and orijinal:
-            yeni_ad = self.alias_map.get(orijinal, orijinal)  # delete'te orijinal döner, edit'te yeni alias
+            yeni_ad = self.alias_map.get(orijinal, orijinal) if self.radio_use_alias.isChecked() else orijinal
 
             # Figure params güncelle
             for fig_no, fig_data in self.figures.items():
