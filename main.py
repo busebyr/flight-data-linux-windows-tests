@@ -34,7 +34,6 @@ def _get_app_dir() -> str:
     except NameError:
         return os.path.abspath(os.getcwd())
 
-
 def _get_writable_dir() -> str:
     """Yazma: aliases.json gibi kullanıcı verisi için (frozen'da exe'nin yanı)."""
     if getattr(sys, 'frozen', False):
@@ -43,6 +42,7 @@ def _get_writable_dir() -> str:
         return os.path.dirname(os.path.abspath(__file__))
     except NameError:
         return os.path.abspath(os.getcwd())
+
 
 class GrafikPenceresi(QMainWindow):
     def __init__(self, fig, figure_no, mode, parent_ref):
@@ -860,6 +860,7 @@ class GrafikPenceresi(QMainWindow):
 
     def matlab_export(self):
         secili = [item.text() for item in self.matlab_listesi.selectedItems()]
+
         if not secili:
             QMessageBox.warning(self, "Warning", "Please select at least one parameter.")
             return
