@@ -232,7 +232,7 @@ class GrafikPenceresi(QMainWindow):
         legend_handles = legend.legend_handles
 
         for legend_handle, orig_obj in zip(legend_handles, tum_nesneler):
-            legend_handle.set_picker(True)  # type: ignore
+            legend_handle.set_picker(True)
             self.line_map[legend_handle] = orig_obj
 
         self.pick_connection = self.canvas.mpl_connect("pick_event", self.on_pick)
