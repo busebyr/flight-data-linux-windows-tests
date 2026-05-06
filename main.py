@@ -22,8 +22,10 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 
-from analiz_motoru import dosyalari_yukle, grafikleri_ciz, DosyaHatasi
+from analiz_motoru import dosyalari_yukle, grafikleri_ciz, DosyaHatasi, veriyi_hizala
 from error_analyzer import analyze_errors, find_variable_system, check_special_variable
+
+from scipy.integrate import cumulative_trapezoid
 
 def _get_app_dir() -> str:
     """Sadece okuma: xlsx ve data dosyaları için (frozen'da _MEIPASS)."""
@@ -49,6 +51,7 @@ class GrafikPenceresi(QMainWindow):
         super().__init__()
         self.parent_ref = parent_ref
         self.figure_no = figure_no
+        self.mode = mode
         self.setWindowTitle(f'Figure {figure_no} — TIME MODE: {mode.upper()}')
         self.resize(900, 500)
 
@@ -181,6 +184,85 @@ class GrafikPenceresi(QMainWindow):
 
         self.tabs.addTab(self.ops_widget, 'Operations')
 
+        # Wh/Ah Sekmesi
+        self.energy_widget = QWidget()
+        energy_layout = QVBoxLayout(self.energy_widget)
+        energy_layout.setSpacing(10)
+
+        # Vi / Ii seçim satırı
+        kanal_layout = QHBoxLayout()
+        kanal_layout.addWidget(QLabel('Voltage (Vi):'))
+        self.energy_vi_combo = QComboBox()
+        kanal_layout.addWidget(self.energy_vi_combo)
+        kanal_layout.addSpacing(20)
+        kanal_layout.addWidget(QLabel('Current (Ii):'))
+        self.energy_ii_combo = QComboBox()
+        kanal_layout.addWidget(self.energy_ii_combo)
+        kanal_layout.addStretch()
+        energy_layout.addLayout(kanal_layout)
+
+        # Zaman aralığı seçimi
+        time_group = QGroupBox('Time Range')
+        time_group_layout = QVBoxLayout(time_group)
+
+        self.energy_radio_full = QRadioButton('Full Data')
+        self.energy_radio_full.setChecked(True)
+        self.energy_time_btn_group = QButtonGroup()
+        self.energy_time_btn_group.addButton(self.energy_radio_full)
+        time_group_layout.addWidget(self.energy_radio_full)
+
+        # Custom Range seçeneği
+        custom_layout = QHBoxLayout()
+        self.energy_radio_custom = QRadioButton('Custom Range (s):')
+        self.energy_time_btn_group.addButton(self.energy_radio_custom)
+        self.energy_start = QLineEdit()
+        self.energy_start.setPlaceholderText('0.0')
+        self.energy_start.setMaximumWidth(80)
+        self.energy_end = QLineEdit()
+        self.energy_end.setPlaceholderText('e.g. 120.0')
+        self.energy_end.setMaximumWidth(80)
+        custom_layout.addWidget(self.energy_radio_custom)
+        custom_layout.addWidget(QLabel('Start:'))
+        custom_layout.addWidget(self.energy_start)
+        custom_layout.addWidget(QLabel('End:'))
+        custom_layout.addWidget(self.energy_end)
+        custom_layout.addStretch()
+        time_group_layout.addLayout(custom_layout)
+
+        energy_layout.addWidget(time_group)
+
+        # Calculate butonu
+        self.btn_energy_calc = QPushButton('Calculate')
+        self.btn_energy_calc.setFixedHeight(32)
+        self.btn_energy_calc.clicked.connect(self.energy_hesapla)
+        energy_layout.addWidget(self.btn_energy_calc)
+
+        # Sonuç alanı
+        sonuc_group = QGroupBox('Results')
+        sonuc_layout = QHBoxLayout(sonuc_group)
+        self.energy_wh_label = QLabel('Watt-Hour  :  —')
+        self.energy_ah_label = QLabel('Ampere-Hour:  —')
+        self.energy_wh_label.setStyleSheet('font-size: 14px; font-weight: bold;')
+        self.energy_ah_label.setStyleSheet('font-size: 14px; font-weight: bold;')
+        sonuc_layout.addWidget(self.energy_wh_label)
+        sonuc_layout.addSpacing(40)
+        sonuc_layout.addWidget(self.energy_ah_label)
+        sonuc_layout.addStretch()
+        energy_layout.addWidget(sonuc_group)
+
+        # Checkbox
+        self.energy_graph_checkbox = QCheckBox('Show Graph')
+        self.energy_graph_checkbox.setChecked(False)
+        self.energy_graph_checkbox.stateChanged.connect(self.energy_graph_checkbox_degisti)
+        energy_layout.addWidget(self.energy_graph_checkbox)
+
+        #Son hesplama verisi
+        self._energy_son_t = None
+        self._energy_son_v = None
+        self._energy_son_i = None
+
+        self.tabs.addTab(self.energy_widget, 'Wh / Ah')
+
         layout.addWidget(self.toolbar)
         layout.addWidget(self.legend_checkbox)
         layout.addWidget(self.tabs)
@@ -195,6 +277,155 @@ class GrafikPenceresi(QMainWindow):
         #Operations veri deposu: {"Op1": (t, v, aciklama, sol, op, sag, sabit_mi)}
         self.op_data = {}
         self._op_sayac = 0
+
+    def energy_dropdown_guncelle(self):
+        """Energy sekmesindeki Vi/Ii dropdown'larını mevcut U parametreleriyle doldurur."""
+        u_isimleri = [v for v in self.label_map.values()]
+        self.energy_vi_combo.clear()
+        self.energy_ii_combo.clear()
+        self.energy_vi_combo.addItems(u_isimleri)
+        self.energy_ii_combo.addItems(u_isimleri)
+
+    def energy_hesapla(self):
+        """Wh ve Ah hesabını yapar, kümülatif grafiği çizer."""
+        vi_isim = self.energy_vi_combo.currentText()
+        ii_isim = self.energy_ii_combo.currentText()
+
+        if vi_isim == ii_isim:
+            QMessageBox.warning(self, 'Warning', 'Voltage and Current must be different channels.')
+            return
+
+        # Veriyi al
+        t_v, v_data = self._operand_verisini_al(vi_isim)
+        t_i, i_data = self._operand_verisini_al(ii_isim)
+
+        if t_v is None or t_i is None:
+            QMessageBox.warning(self, 'Warning', 'Could not retrieve data. Please apply operations first if needed.')
+            return
+
+        # Ortak zaman eksenine hizala
+        if self.mode == 'realtime':
+            # Ortak timeline oluştur
+            t_min = max(t_v[0], t_i[0])
+            t_max = min(t_v[-1], t_i[-1])
+            if t_min >= t_max:
+                QMessageBox.warning(self, 'Warning', 'Voltage and Current time ranges do not overlap.')
+                return
+            dt = min(np.mean(np.diff(t_v)), np.mean(np.diff(t_i)))
+            t = np.arange(t_min, t_max, dt)
+            t_series = pd.Series(t)
+
+            # V ve I'yı ortak timeline'a interpole et
+            df_v = pd.DataFrame({'t': t_v, vi_isim: v_data})
+            df_i = pd.DataFrame({'t': t_i, ii_isim: i_data})
+            v = veriyi_hizala(df_v, t_series, vi_isim, 'nearest').to_numpy(dtype=float)
+            i = veriyi_hizala(df_i, t_series, ii_isim, 'nearest').to_numpy(dtype=float)
+        else:
+            t = t_v
+            v = v_data
+            i = i_data
+
+        if self.energy_radio_custom.isChecked():
+            try:
+                t_start = float(self.energy_start.text())
+                t_end = float(self.energy_end.text())
+            except ValueError:
+                QMessageBox.warning(self, 'Warning', 'Please enter valid Start and End times.')
+                return
+            if t_start >= t_end:
+                QMessageBox.warning(self, 'Warning', 'Start time must be less than End time.')
+                return
+            mask = (t >= t_start) & (t <= t_end)
+            t = t[mask]
+            v = v[mask]
+            i = i[mask]
+
+            if len(t) < 2:
+                QMessageBox.warning(self, 'Warning', 'Not enough data points in the selected range.')
+                return
+
+        # Hesapla
+        p = v * i
+        wh_toplam = np.trapezoid(p, t) / 3600.0
+        ah_toplam = np.trapezoid(i, t) / 3600.0
+
+        # Sonuçları göster
+        self.energy_wh_label.setText(f'Watt-Hour  :  {wh_toplam:.4f} Wh')
+        self.energy_ah_label.setText(f'Ampere-Hour:  {ah_toplam:.4f} Ah')
+
+        #Son hesaplamayı sakla
+        self._energy_son_t = t
+        self._energy_son_v = v
+        self._energy_son_i = i
+
+        #Checkbox işaretliyse grafik aç
+        if self.energy_graph_checkbox.isChecked():
+            self.energy_grafik_ac(t, v, i)
+
+    def energy_graph_checkbox_degisti(self, state):
+        if state and self._energy_son_t is not None:
+            self.energy_grafik_ac(self._energy_son_t, self._energy_son_v, self._energy_son_i)
+        elif not state and self._energy_pencere is not None:
+            self._energy_pencere.close()
+            self._energy_pencere = None
+
+    def energy_grafik_ac(self, t, v, i):
+        p = v * i
+        wh_kumulatif = cumulative_trapezoid(p, t, initial=0) / 3600.0
+        ah_kumulatif = cumulative_trapezoid(i, t, initial=0) / 3600.0
+        t_kumulatif = t
+
+        fig, ax1 = plt.subplots(figsize=(10, 5))
+        ax1.set_title('Wh & Ah')
+        ax1.set_xlabel('Time (s)')
+        ax1.set_ylabel('Wh', color='tab:blue')
+        line_wh, = ax1.plot(t_kumulatif, wh_kumulatif, color='tab:blue', label='Wh')
+        ax1.tick_params(axis='y', labelcolor='tab:blue')
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel('Ah', color='tab:orange')
+        line_ah, = ax2.plot(t_kumulatif, ah_kumulatif, color='tab:orange', label='Ah')
+        ax2.tick_params(axis='y', labelcolor='tab:orange')
+
+        ax1.grid(True)
+
+        # Toplam değerleri hesapla
+        wh_toplam = np.trapezoid(p, t) / 3600.0
+        ah_toplam = np.trapezoid(i, t) / 3600.0
+
+        lines = [line_wh, line_ah]
+        labels = [f'Wh: {wh_toplam:.4f} Wh', f'Ah: {ah_toplam:.4f} Ah']
+
+        legend = ax1.legend(lines, labels, loc='upper left')
+        legend.set_draggable(True)
+        fig.tight_layout()
+
+        # UI ve Pencere İşlemleri
+        self._energy_pencere = QMainWindow()
+        self._energy_pencere.setWindowTitle(f'Wh & Ah — Figure {self.figure_no}')
+        self._energy_pencere.resize(900, 500)
+
+        canvas = FigureCanvas(fig)
+        toolbar = NavigationToolbar(canvas, self._energy_pencere)
+
+        # Toggle Mekanizması
+        def on_click(event):
+            if event.inaxes is None: return
+            for leg_handle, orig in zip(legend.legend_handles, lines):
+                bbox = leg_handle.get_window_extent()
+                if (bbox.x0 <= event.x <= bbox.x1 + 20) and (abs(event.y - bbox.y0) < 10):
+                    orig.set_visible(not orig.get_visible())
+                    canvas.draw_idle()
+                    break
+
+        canvas.mpl_connect('button_press_event', on_click)
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.addWidget(toolbar)
+        layout.addWidget(canvas)
+        self._energy_pencere.setCentralWidget(widget)
+        self._energy_pencere.show()
 
     def legend_guncelle(self):
         if not self.canvas.figure.axes:
@@ -216,9 +447,14 @@ class GrafikPenceresi(QMainWindow):
         if not tum_nesneler:
             return
 
+        old_legend = ax.get_legend()
+        if old_legend:
+            old_legend.remove()
+
         all_labels = [obj.get_label() for obj in tum_nesneler]
-        ax.legend(handles=tum_nesneler, labels=all_labels, loc=1)
+        ax.legend(handles=tum_nesneler, labels=all_labels, loc='upper left')
         legend = ax.get_legend()
+
         if legend is None:
             return
         legend.set_draggable(True)
@@ -228,7 +464,6 @@ class GrafikPenceresi(QMainWindow):
         if hasattr(self, "press_connection") and self.press_connection:
             self.canvas.mpl_disconnect(self.press_connection)
 
-        #Legend handle'ları hem line hem scatter için
         legend_handles = legend.legend_handles
 
         for legend_handle, orig_obj in zip(legend_handles, tum_nesneler):
@@ -238,8 +473,8 @@ class GrafikPenceresi(QMainWindow):
         self.pick_connection = self.canvas.mpl_connect("pick_event", self.on_pick)
         self.press_connection = self.canvas.mpl_connect("button_press_event", self.legend_sag_tik)
 
+    # Sol ve sağ operand dropdown'larını mevcut U parametreleri + Op sonuçlarıyla güncelle
     def ops_dropdown_guncelle(self):
-        #Sol ve sağ operand dropdown'larını mevcut U parametreleri + Op sonuçlarıyla güncelle
         u_isimleri = list(self.label_map.values())
         op_isimleri = list(self.op_data.keys())
         tum_secenekler = u_isimleri + op_isimleri
@@ -249,6 +484,13 @@ class GrafikPenceresi(QMainWindow):
 
         self.sag_operand_combo.clear()
         self.sag_operand_combo.addItems(tum_secenekler)
+
+        # Energy sekmesi dropdown'larını da güncelle
+        if hasattr(self, 'energy_vi_combo'):
+            self.energy_dropdown_guncelle()
+
+        if hasattr (self, 'energy_ii_combo'):
+            self.energy_dropdown_guncelle()
 
     def _operand_verisini_al(self, isim):
         #Verilen isim için (t, v) döndürür op ise op_data'dan U ise plotted_data'dan alır
@@ -262,7 +504,6 @@ class GrafikPenceresi(QMainWindow):
         if gercek and gercek in self.plotted_data:
             t, v = self.plotted_data[gercek]
             return np.asarray(t), np.asarray(v)
-
         return None, None
 
     def operasyon_ekle(self):
@@ -348,6 +589,24 @@ class GrafikPenceresi(QMainWindow):
         if bagimli:
             QMessageBox.information(self, "Info",
                                     f"{op_isim} silindi. Bağımlı Op'lar da kaldırıldı: {', '.join(bagimli)}")
+        yeni_op_data = {}
+        for satir in range(self.op_listesi.rowCount()):
+            item = self.op_listesi.item(satir, 0)
+            if not item:
+                continue
+            eski_isim = item.text()
+            yeni_isim = f"Op{satir + 1}"
+            item.setText(yeni_isim)
+
+            if eski_isim in self.op_data:
+                kayit = self.op_data[eski_isim]
+                # aciklama içinde eski isim geçiyorsa güncelle
+                yeni_aciklama = kayit[2].replace(eski_isim, yeni_isim) if kayit[2] else kayit[2]
+                yeni_op_data[yeni_isim] = (kayit[0], kayit[1], yeni_aciklama,
+                                           kayit[3], kayit[4], kayit[5], kayit[6])
+
+        self.op_data = yeni_op_data
+        self._op_sayac = self.op_listesi.rowCount()
 
         self.ops_dropdown_guncelle()
         self.operasyonlari_uygula()
@@ -464,12 +723,12 @@ class GrafikPenceresi(QMainWindow):
         # Toggle map temizle
         self.line_map = {}
 
-        # csv_listesi ve matlab_listesi'nden eski Op itemlarını tamamen temizle
+        # csv_listesi ve matlab_listesi'nden eski Op itemlerini tamamen temizle
         for liste in [self.matlab_listesi, self.csv_listesi]:
             silinecek = []
             for i in range(liste.count()):
                 item = liste.item(i)
-                if item and any(item.text().startswith(f"Op{n} ") for n in range(1, self._op_sayac + 1)):
+                if item and re.match(r'^Op\d+ ', item.text()):
                     silinecek.append(i)
             for i in reversed(silinecek):
                 liste.takeItem(i)
@@ -563,6 +822,9 @@ class GrafikPenceresi(QMainWindow):
 
         #Legend oluşturmayı enable_legend_toggle'a bırak çift oluşturma olmasın
         self.enable_legend_toggle(u_lines + yeni_op_lines, self.scatter_list)
+        ax.relim()
+        ax.autoscale_view()
+        self.toolbar.update()
         self.canvas.draw_idle()
 
     def on_pick(self, event):

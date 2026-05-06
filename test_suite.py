@@ -772,8 +772,6 @@ class TestEnableLegendToggle(unittest.TestCase):
 
     def setUp(self):
         fig, ax = plt.subplots()
-        ax.plot([1,2],[3,4], label = 'test')
-        ax.legend()
         parent = MagicMock()
         parent.acik_grafikler = []
         self.pencere = GrafikPenceresi(fig, figure_no=1, mode='previous', parent_ref=parent)
@@ -3375,6 +3373,225 @@ class TestCsvExport(unittest.TestCase):
         df = pd.read_csv(self.dosya)
         self.assertEqual(len(df), 3)
         self.assertTrue(df['ch1_v'].isna().any())
+
+
+class TestEnergyHesapla(unittest.TestCase):
+
+    def setUp(self):
+        fig, ax = plt.subplots()
+        parent = MagicMock()
+        parent.acik_grafikler = []
+        self.pencere = GrafikPenceresi(fig, figure_no=1, mode='realtime', parent_ref=parent)
+        plt.close(fig)
+
+        self.pencere.op_data = {}
+        self.pencere.ters_label_map = {}
+        self.pencere.plotted_data = {}
+
+        self.pencere.energy_vi_combo.addItem('Voltage')
+        self.pencere.energy_ii_combo.addItem('Current')
+        self.pencere.energy_vi_combo.setCurrentText('Voltage')
+        self.pencere.energy_ii_combo.setCurrentText('Current')
+
+        self.pencere.energy_radio_full.setChecked(True)
+
+        self.pencere.energy_graph_checkbox.setChecked(False)
+
+    def v_i_mock_kur(self, t_v, v_data, t_i, i_data):
+        def side_effect(isim):
+            if isim == 'Voltage':
+                return (t_v, v_data)
+            elif isim == 'Current':
+                return (t_i, i_data)
+            return (None, None)
+        self.pencere._operand_verisini_al = MagicMock(side_effect=side_effect)
+
+    def test_realtime_farkli_ornekleme_hizlari(self):
+        t_v = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        t_i = np.array([0.0, 2.0, 4.0])
+        i_data = np.array([0.5, 1.5, 2.5])
+
+        self.pencere.mode = 'realtime'
+        self.v_i_mock_kur(t_v, v_data, t_i, i_data)
+
+        self.pencere.energy_hesapla()
+
+        wh_text = self.pencere.energy_wh_label.text()
+        self.assertIn('Wh', wh_text)
+        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
+        self.assertFalse(np.isnan(wh_val))
+
+    def test_realtime_ortusmeyen_aralik_uyari_vermeli(self):
+        t_v = np.array([0.0, 1.0, 2.0])
+        v_data = np.array([1.0, 2.0, 3.0])
+        t_i = np.array([5.0, 6.0, 7.0])
+        i_data = np.array([1.0, 2.0, 3.0])
+
+        self.pencere.mode = 'realtime'
+        self.v_i_mock_kur(t_v, v_data, t_i, i_data)
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+            args = mock_warning.call_args[0]
+            self.assertIn('overlap', args[2].lower())
+
+    def test_previous_mod_direkt_veri_kullanmali(self):
+        t = np.linspace(0, 4, 5)
+        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0 ])
+        i_data = np.array([0.5, 1.0, 1.5, 2.0, 2.5])
+
+        self.pencere.mode = 'previous'
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        with patch('main.veriyi_hizala') as mock_hizala:
+            self.pencere.energy_hesapla()
+            mock_hizala.assert_not_called()
+
+        self.assertIn('Wh', self.pencere.energy_wh_label.text())
+
+    def test_ayni_field_secilirse_uyari_verilmeli(self):
+        self.pencere.energy_vi_combo.setCurrentText('Voltage')
+        self.pencere.energy_ii_combo.clear()
+        self.pencere.energy_ii_combo.addItem('Voltage')
+        self.pencere.energy_ii_combo.setCurrentText('Voltage')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_full_data_tum_veri_kullanilmali(self):
+        t = np.linspace(0, 10, 100)
+        v_data = np.ones(100) * 12.0
+        i_data = np.ones(100) * 2.0
+
+        self.pencere.mode = 'previous'
+        self.pencere.energy_radio_full.setChecked(True)
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        #Wh = 12 * 2 * 10 / 3600 = 0.0667 Wh
+        self.pencere.energy_hesapla()
+        wh_text = self.pencere.energy_wh_label.text()
+        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
+        self.assertAlmostEqual(wh_val, 12.0 * 2.0 * 10.0 / 3600.0, places=3)
+
+    def test_custom_range_bos_giris_uyari_verilmeli(self):
+        t = np.linspace(0, 4, 5)
+        self.v_i_mock_kur(t, np.ones(5), t, np.ones(5))
+
+        self.pencere.energy_radio_custom.setChecked(True)
+        self.pencere.energy_start.setText('')
+        self.pencere.energy_end.setText('')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_custom_range_bossa_uyari_vermeli(self):
+        t = np.linspace(0, 4, 5)
+        self.v_i_mock_kur(t, np.ones(5), t, np.ones(5))
+
+        self.pencere.energy_radio_custom.setChecked(True)
+        self.pencere.energy_start.setText('3.0')
+        self.pencere.energy_end.setText('1.0')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+            args = mock_warning.call_args[0]
+            self.assertIn('less than', args[2].lower())
+
+
+class TestEnergyGraphCheckboxDegisti(unittest.TestCase):
+
+    def setUp(self):
+        fig, ax = plt.subplots()
+        parent = MagicMock()
+        parent.acik_grafikler = []
+        self.pencere = GrafikPenceresi(fig, figure_no=1, mode='previous', parent_ref=parent)
+        plt.close(fig)
+        self.pencere.energy_graph_checkbox.setChecked(False)
+        self.pencere._energy_pencere = None
+
+    def test_checkbox_isaretlenince_hesaplama_varsa_grafik_acilmali(self):
+        self.pencere._energy_son_t = np.linspace(0, 4, 5)
+        self.pencere._energy_son_v = np.ones(5) * 10.0
+        self.pencere._energy_son_i = np.ones(5) * 2.0
+
+        with patch.object(self.pencere, 'energy_grafik_ac') as mock_ac:
+            self.pencere.energy_graph_checkbox_degisti(True)
+            mock_ac.assert_called_once_with(
+                self.pencere._energy_son_t,
+                self.pencere._energy_son_v,
+                self.pencere._energy_son_i
+            )
+
+    def test_checkbox_isaretlenince_hesaplama_yoksa_grafik_acilmamali(self):
+        self.pencere._energy_son_t = None
+
+        with patch.object(self.pencere, 'energy_grafik_ac') as mock_ac:
+            self.pencere.energy_graph_checkbox_degisti(True)
+            mock_ac.assert_not_called()
+
+    def test_checkbox_kaldirilinca_pencere_kapanmali(self):
+        mock_pencere = MagicMock()
+        self.pencere._energy_pencere = mock_pencere
+
+        self.pencere.energy_graph_checkbox_degisti(False)
+
+        mock_pencere.close.assert_called_once()
+        self.assertIsNone(self.pencere._energy_pencere)
+
+
+class TestEnergyGrafikAc(unittest.TestCase):
+
+    def setUp(self):
+        fig, ax = plt.subplots()
+        parent = MagicMock()
+        parent.acik_grafikler = []
+        self.pencere = GrafikPenceresi(fig, figure_no=1, mode='previous', parent_ref=parent)
+        plt.close(fig)
+        self.pencere._energy_pencere = None
+
+        self.t = np.linspace(0, 4, 50)
+        self.v = np.ones(50) * 12.0
+        self.i = np.ones(50) * 2.0
+
+    def tearDown(self):
+        if self.pencere._energy_pencere is not None:
+            self.pencere._energy_pencere.close()
+        plt.close('all')
+
+    def test_legend_toggle_egriyi_gizler_ve_gosterir(self):
+        self.pencere.energy_grafik_ac(self.t, self.v, self.i)
+        pencere = self.pencere._energy_pencere
+        self.assertIsNotNone(pencere)
+
+        fig = pencere.centralWidget().layout().itemAt(1).widget().figure
+        ax1 = fig.axes[0]
+        wh_line = ax1.lines[0]
+        self.assertTrue(wh_line.get_visible())
+
+        wh_line.set_visible(False)
+        self.assertFalse(wh_line.get_visible())
+
+        wh_line.set_visible(True)
+        self.assertTrue(wh_line.get_visible())
+
+    def test_pencere_kapatilip_tekrar_acilabilmeli(self):
+        self.pencere._energy_son_t = self.t
+        self.pencere._energy_son_v = self.v
+        self.pencere._energy_son_i = self.i
+
+        self.pencere.energy_grafik_ac(self.t, self.v, self.i)
+        self.assertIsNotNone(self.pencere._energy_pencere)
+
+        self.pencere.energy_graph_checkbox_degisti(False)
+        self.assertIsNone(self.pencere._energy_pencere)
+
+        self.pencere.energy_graph_checkbox_degisti(True)
+        self.assertIsNotNone(self.pencere._energy_pencere)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

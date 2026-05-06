@@ -208,9 +208,6 @@ def grafikleri_ciz(tum_veriler, parametre_map, mode, figure_no, units=None, alia
 
         if legend is not None:
             legend.set_draggable(True)
-            for legline in legend.get_lines():
-                legline.set_linewidth(6)
-                legline.set_markersize(10)
             for handle in legend.legend_handles:
                 if hasattr(handle, 'set_sizes'):
                     handle.set_sizes([80])
