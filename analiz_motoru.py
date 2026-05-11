@@ -11,7 +11,7 @@ class AnalizMotoruError(Exception):
 class DosyaHatasi(AnalizMotoruError):
     pass
 
-def ortak_zaman_ekseni(veriler ):#uyari_callback=None
+def ortak_zaman_ekseni(veriler ):
     t_max_listesi = []
     dt_listesi = []
 
@@ -22,9 +22,9 @@ def ortak_zaman_ekseni(veriler ):#uyari_callback=None
         t_norm = t - t[0]
         t_max_listesi.append(t_norm[-1])
 
-        # MATLAB mantığı: ilk 5 adımın ortalaması
+        #MATLAB mantığı: ilk 5 adımın ortalaması
         n_check = min(5, len(t))
-        ort_diff_ms = np.mean(np.diff(t[:n_check])) * 1000  # saniye → ms
+        ort_diff_ms = np.mean(np.diff(t[:n_check])) * 1000  #saniye → ms
         dt = 0.010 if ort_diff_ms < 50 else 0.100
 
         dt_listesi.append(dt)
@@ -32,7 +32,7 @@ def ortak_zaman_ekseni(veriler ):#uyari_callback=None
     if not t_max_listesi or not dt_listesi:
         return pd.Series([], dtype=float)
 
-    dt = min(dt_listesi)       # en yüksek çözünürlük
+    dt = min(dt_listesi)
     t_max = max(t_max_listesi)
     ortak = np.arange(0, t_max + dt, dt)
     return pd.Series(ortak, dtype=float)
@@ -48,10 +48,10 @@ def veriyi_hizala(df, timeline, kolon, mode):
     if len(kaynak) == 0:
         return pd.Series(np.nan, index=timeline.index, dtype=float)
 
-    # Normalizasyon sadece burada — ortak_zaman_ekseni'nde değil
+    #Normalizasyon sadece burada —> ortak_zaman_ekseni'nde değil
     kaynak['t'] = kaynak['t'] - kaynak['t'].iloc[0]
 
-    # MATLAB'daki unique() — tekrar eden timestamp'leri temizle
+    #MATLAB'daki unique() —> tekrar eden timestamp'leri temizle
     kaynak = kaynak.drop_duplicates(subset='t', keep='first').reset_index(drop=True)
 
     direction: Literal['backward', 'nearest'] = 'backward' if mode == 'previous' else 'nearest'

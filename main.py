@@ -1,6 +1,6 @@
 import sys
 import os
-import re #Serbest ifadeden değişkenleri bulmak için (regular expressions)
+import re
 import pandas as pd
 from scipy.io import savemat
 import numpy as np
@@ -15,7 +15,7 @@ from matplotlib.backend_bases import MouseButton
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QListWidget, QFileDialog, QLabel,
                              QAbstractItemView, QMessageBox, QLineEdit, QMainWindow,
-                              QRadioButton, QButtonGroup, QTreeWidget, QTreeWidgetItem,
+                             QRadioButton, QButtonGroup, QTreeWidget, QTreeWidgetItem,
                              QGroupBox, QComboBox, QCheckBox, QTableWidget, QTableWidgetItem,
                              QTabWidget, QHeaderView, QMenu, QInputDialog)
 
@@ -27,7 +27,7 @@ from error_analyzer import analyze_errors, find_variable_system, check_special_v
 
 from scipy.integrate import cumulative_trapezoid
 
-def _get_app_dir() -> str:
+def get_app_dir() -> str:
     """Sadece okuma: xlsx ve data dosyaları için (frozen'da _MEIPASS)."""
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
@@ -36,7 +36,7 @@ def _get_app_dir() -> str:
     except NameError:
         return os.path.abspath(os.getcwd())
 
-def _get_writable_dir() -> str:
+def get_writable_dir() -> str:
     """Yazma: aliases.json gibi kullanıcı verisi için (frozen'da exe'nin yanı)."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(os.path.abspath(sys.executable))
@@ -47,6 +47,7 @@ def _get_writable_dir() -> str:
 
 
 class GrafikPenceresi(QMainWindow):
+
     def __init__(self, fig, figure_no, mode, parent_ref):
         super().__init__()
         self.parent_ref = parent_ref
@@ -105,7 +106,7 @@ class GrafikPenceresi(QMainWindow):
         matlab_layout.addWidget(self.btn_matlab_export)
         self.tabs.addTab(self.matlab_widget, 'Matlab Export')
 
-        #CSV Export Sekmesş
+        #CSV Export Sekmesi
         self.csv_widget = QWidget()
         csv_layout = QVBoxLayout(self.csv_widget)
         self.csv_listesi = QListWidget()
@@ -121,7 +122,7 @@ class GrafikPenceresi(QMainWindow):
         self.ops_widget = QWidget()
         ops_layout = QVBoxLayout(self.ops_widget)
 
-        #Üst kısım - işlem tanımlama satırı
+        #İşlem tanımlama satırı
         tanim_layout = QHBoxLayout()
 
         self.sol_operand = QComboBox()
@@ -184,24 +185,44 @@ class GrafikPenceresi(QMainWindow):
 
         self.tabs.addTab(self.ops_widget, 'Operations')
 
-        # Wh/Ah Sekmesi
+        #Wh/Ah Sekmesi
         self.energy_widget = QWidget()
         energy_layout = QVBoxLayout(self.energy_widget)
         energy_layout.setSpacing(10)
 
-        # Vi / Ii seçim satırı
-        kanal_layout = QHBoxLayout()
-        kanal_layout.addWidget(QLabel('Voltage (Vi):'))
-        self.energy_vi_combo = QComboBox()
-        kanal_layout.addWidget(self.energy_vi_combo)
-        kanal_layout.addSpacing(20)
-        kanal_layout.addWidget(QLabel('Current (Ii):'))
-        self.energy_ii_combo = QComboBox()
-        kanal_layout.addWidget(self.energy_ii_combo)
-        kanal_layout.addStretch()
-        energy_layout.addLayout(kanal_layout)
+        #Veri Kaynağı
+        kaynak_group = QGroupBox('Data Source')
+        kaynak_layout = QVBoxLayout(kaynak_group)
 
-        # Zaman aralığı seçimi
+        #Dosya seç satırı
+        dosya_sec_layout = QHBoxLayout()
+        self.btn_energy_dosya = QPushButton('Select File')
+        self.btn_energy_dosya.clicked.connect(self.energy_dosya_sec)
+        self.energy_dosya_label = QLabel('No file selected — using plotted data')
+        self.energy_dosya_label.setStyleSheet('font-style: italic;')
+        self.btn_energy_dosya_temizle = QPushButton('✕')
+        self.btn_energy_dosya_temizle.setFixedWidth(28)
+        self.btn_energy_dosya_temizle.clicked.connect(self.energy_dosya_temizle)
+        dosya_sec_layout.addWidget(self.btn_energy_dosya)
+        dosya_sec_layout.addWidget(self.energy_dosya_label, 1)
+        dosya_sec_layout.addWidget(self.btn_energy_dosya_temizle)
+        kaynak_layout.addLayout(dosya_sec_layout)
+
+        #Kolon seçim satırı
+        kolon_layout = QHBoxLayout()
+        kolon_layout.addWidget(QLabel('Voltage (Vi):'))
+        self.energy_vi_combo = QComboBox()
+        kolon_layout.addWidget(self.energy_vi_combo)
+        kolon_layout.addSpacing(20)
+        kolon_layout.addWidget(QLabel('Current (Ii):'))
+        self.energy_ii_combo = QComboBox()
+        kolon_layout.addWidget(self.energy_ii_combo)
+        kolon_layout.addStretch()
+        kaynak_layout.addLayout(kolon_layout)
+
+        energy_layout.addWidget(kaynak_group)
+
+        #Zaman aralığı seçimi
         time_group = QGroupBox('Time Range')
         time_group_layout = QVBoxLayout(time_group)
 
@@ -211,7 +232,7 @@ class GrafikPenceresi(QMainWindow):
         self.energy_time_btn_group.addButton(self.energy_radio_full)
         time_group_layout.addWidget(self.energy_radio_full)
 
-        # Custom Range seçeneği
+        #Custom Range seçeneği
         custom_layout = QHBoxLayout()
         self.energy_radio_custom = QRadioButton('Custom Range (s):')
         self.energy_time_btn_group.addButton(self.energy_radio_custom)
@@ -229,15 +250,28 @@ class GrafikPenceresi(QMainWindow):
         custom_layout.addStretch()
         time_group_layout.addLayout(custom_layout)
 
+        #Periyodik örnekleme seçenği
+        period_layout = QHBoxLayout()
+        self.energy_radio_period = QRadioButton('Periodic Sampling:')
+        self.energy_time_btn_group.addButton(self.energy_radio_period)
+        self.energy_period_ms = QLineEdit()
+        self.energy_period_ms.setPlaceholderText('e.g. 10')
+        self.energy_period_ms.setMaximumWidth(80)
+        period_layout.addWidget(self.energy_radio_period)
+        period_layout.addWidget(self.energy_period_ms)
+        period_layout.addWidget(QLabel('ms'))
+        period_layout.addStretch()
+        time_group_layout.addLayout(period_layout)
+
         energy_layout.addWidget(time_group)
 
-        # Calculate butonu
+        #Calculate butonu
         self.btn_energy_calc = QPushButton('Calculate')
         self.btn_energy_calc.setFixedHeight(32)
         self.btn_energy_calc.clicked.connect(self.energy_hesapla)
         energy_layout.addWidget(self.btn_energy_calc)
 
-        # Sonuç alanı
+        #Sonuç alanı
         sonuc_group = QGroupBox('Results')
         sonuc_layout = QHBoxLayout(sonuc_group)
         self.energy_wh_label = QLabel('Watt-Hour  :  —')
@@ -250,7 +284,7 @@ class GrafikPenceresi(QMainWindow):
         sonuc_layout.addStretch()
         energy_layout.addWidget(sonuc_group)
 
-        # Checkbox
+        #Checkbox
         self.energy_graph_checkbox = QCheckBox('Show Graph')
         self.energy_graph_checkbox.setChecked(False)
         self.energy_graph_checkbox.stateChanged.connect(self.energy_graph_checkbox_degisti)
@@ -260,6 +294,10 @@ class GrafikPenceresi(QMainWindow):
         self._energy_son_t = None
         self._energy_son_v = None
         self._energy_son_i = None
+        self._energy_pencere = None
+        self._energy_df = None
+        self._energy_df_sep = None
+        self._energy_df_skiprows = 0
 
         self.tabs.addTab(self.energy_widget, 'Wh / Ah')
 
@@ -286,45 +324,181 @@ class GrafikPenceresi(QMainWindow):
         self.energy_vi_combo.addItems(u_isimleri)
         self.energy_ii_combo.addItems(u_isimleri)
 
-    def energy_hesapla(self):
-        """Wh ve Ah hesabını yapar, kümülatif grafiği çizer."""
-        vi_isim = self.energy_vi_combo.currentText()
-        ii_isim = self.energy_ii_combo.currentText()
-
-        if vi_isim == ii_isim:
-            QMessageBox.warning(self, 'Warning', 'Voltage and Current must be different channels.')
+    def energy_dosya_sec(self):
+        dosya_yolu, _ = QFileDialog.getOpenFileName(
+            self, 'Select Data File', '', 'CSV Files (*.csv);;All Files (*)')
+        if not dosya_yolu:
             return
+        try:
+            with open(dosya_yolu, 'r', encoding='utf-8', errors='replace') as f:
+                satirlar = f.readlines()
 
-        # Veriyi al
-        t_v, v_data = self._operand_verisini_al(vi_isim)
-        t_i, i_data = self._operand_verisini_al(ii_isim)
-
-        if t_v is None or t_i is None:
-            QMessageBox.warning(self, 'Warning', 'Could not retrieve data. Please apply operations first if needed.')
-            return
-
-        # Ortak zaman eksenine hizala
-        if self.mode == 'realtime':
-            # Ortak timeline oluştur
-            t_min = max(t_v[0], t_i[0])
-            t_max = min(t_v[-1], t_i[-1])
-            if t_min >= t_max:
-                QMessageBox.warning(self, 'Warning', 'Voltage and Current time ranges do not overlap.')
+            if not satirlar:
+                QMessageBox.warning(self, 'Warning', 'File is empty.')
                 return
-            dt = min(np.mean(np.diff(t_v)), np.mean(np.diff(t_i)))
-            t = np.arange(t_min, t_max, dt)
-            t_series = pd.Series(t)
 
-            # V ve I'yı ortak timeline'a interpole et
-            df_v = pd.DataFrame({'t': t_v, vi_isim: v_data})
-            df_i = pd.DataFrame({'t': t_i, ii_isim: i_data})
-            v = veriyi_hizala(df_v, t_series, vi_isim, 'nearest').to_numpy(dtype=float)
-            i = veriyi_hizala(df_i, t_series, ii_isim, 'nearest').to_numpy(dtype=float)
-        else:
-            t = t_v
+            #Ayırıcı ve header satırı tespiti
+            sep = None
+            header_satir = 0
+
+            ilk = satirlar[0].strip().lower()
+            if ilk.startswith('sep='):
+                header_satir = 1
+                sep_raw = satirlar[0].strip().split('=', 1)[1].strip()
+                if sep_raw in ('\\t', '\t') or sep_raw == '':
+                    #boş ise gerçek ayırıcıyı referans satırdan tespit et
+                    sep = None
+                else:
+                    sep = sep_raw
+
+            #sep hala None ise otomatik tespit: header'dan sonraki ilk veri satırına bak
+            if sep is None:
+                referans_idx = header_satir + 1 if len(satirlar) > header_satir + 1 else header_satir
+                referans = satirlar[referans_idx] if referans_idx < len(satirlar) else satirlar[-1]
+                tab = referans.count('\t')
+                semi = referans.count(';')
+                comma = referans.count(',')
+                if tab >= semi and tab >= comma:
+                    sep = '\t'
+                elif semi >= comma:
+                    sep = ';'
+                else:
+                    sep = ','
+
+            df = pd.read_csv(dosya_yolu, sep=sep, skiprows=header_satir,
+                             encoding='utf-8', encoding_errors='replace', engine='python')
+
+            #ESC dosyalarında son kolonda "Serial Number; V2.1" gibi ekler olabilir
+            temiz_kolonlar = [str(k).split(';')[0].strip() for k in df.columns]
+            df.columns = temiz_kolonlar
+            #Tamamen boş isimli kolonları at
+            df = df.loc[:, df.columns.str.strip() != '']
+
+            if df.empty or len(df.columns) == 0:
+                QMessageBox.warning(self, 'Warning', 'No usable data found in file.')
+                return
+
+            self._energy_df = df
+            self._energy_df_sep = sep
+            self._energy_df_skiprows = header_satir
+
+            self.energy_dosya_label.setText(os.path.basename(dosya_yolu))
+            self.energy_dosya_label.setStyleSheet('')
+
+            kolonlar = list(df.columns)
+
+            #Vi / Ii dropdown
+            self.energy_vi_combo.clear()
+            self.energy_ii_combo.clear()
+            self.energy_vi_combo.addItems(kolonlar)
+            self.energy_ii_combo.addItems(kolonlar)
+
+            #Otomatik seçimler
+            for i, k in enumerate(kolonlar):
+                if 'voltage' in k.lower():
+                    self.energy_vi_combo.setCurrentIndex(i)
+                    break
+            for i, k in enumerate(kolonlar):
+                if 'current' in k.lower() and 'phase' not in k.lower():
+                    self.energy_ii_combo.setCurrentIndex(i)
+                    break
+            for i, k in enumerate(kolonlar):
+                if any(x in k.lower() for x in ('time', 'timestamp', 'zeit', 'temps', 'zaman')):
+                    break
+
+        except Exception as e:
+            QMessageBox.warning(self, 'Warning', f'File could not be read:\n{e}')
+            self._energy_df = None
+
+    def energy_dosya_temizle(self):
+        self._energy_df = None
+        self._energy_df_sep = None
+        self._energy_df_skiprows = 0
+        self.energy_dosya_label.setText('No file selected — using plotted data')
+        self.energy_dosya_label.setStyleSheet('font-style: italic;')
+        self.energy_dropdown_guncelle()
+
+    def energy_hesapla(self):
+        if self._energy_df is not None:
+            vi_kolon = self.energy_vi_combo.currentText()
+            ii_kolon = self.energy_ii_combo.currentText()
+
+            if vi_kolon == ii_kolon:
+                QMessageBox.warning(self, 'Warning', 'Voltage and Current must be different columns.')
+                return
+
+            try:
+                v_data = self._energy_df[vi_kolon].to_numpy(dtype=float)
+                i_data = self._energy_df[ii_kolon].to_numpy(dtype=float)
+            except Exception as e:
+                QMessageBox.warning(self, 'Warning', f'Column could not be read:\n{e}')
+                return
+
+            #Zaman kolonunu otomatik bul
+            time_col = next(
+                (k for k in self._energy_df.columns
+                 if any(x in k.lower() for x in ('time', 'timestamp', 'zeit', 'temps', 'zaman'))),
+                None
+            )
+
+            if time_col:
+                t = self._energy_df[time_col].to_numpy(dtype=float) / 1e6
+            else:
+                period_text = self.energy_period_ms.text().strip()
+                if not period_text:
+                    QMessageBox.warning(self, 'Warning',
+                                        'This file has no time column. '
+                                        'Please enter a Sampling Period (ms) to generate the time axis.')
+                    return
+                try:
+                    period_ms = float(period_text)
+                except ValueError:
+                    QMessageBox.warning(self, 'Warning', 'Please enter a valid number for sampling period.')
+                    return
+                if period_ms <= 0:
+                    QMessageBox.warning(self, 'Warning', 'Sampling period must be greater than 0.')
+                    return
+                t = np.arange(len(v_data)) * (period_ms / 1000.0)
+
             v = v_data
             i = i_data
 
+        else:
+            #Plotted data modu
+            vi_isim = self.energy_vi_combo.currentText()
+            ii_isim = self.energy_ii_combo.currentText()
+
+            if vi_isim == ii_isim:
+                QMessageBox.warning(self, 'Warning', 'Voltage and Current must be different channels.')
+                return
+
+            t_v, v_data = self.operand_verisini_al(vi_isim)
+            t_i, i_data = self.operand_verisini_al(ii_isim)
+
+            if t_v is None or t_i is None:
+                QMessageBox.warning(self, 'Warning',
+                                    'Could not retrieve data. Please apply operations first if needed.')
+                return
+
+            if self.mode == 'realtime':
+                t_min = max(t_v[0], t_i[0])
+                t_max = min(t_v[-1], t_i[-1])
+                if t_min >= t_max:
+                    QMessageBox.warning(self, 'Warning', 'Voltage and Current time ranges do not overlap.')
+                    return
+                dt = min(np.mean(np.diff(t_v)), np.mean(np.diff(t_i)))
+                t = np.arange(t_min, t_max, dt)
+                t_series = pd.Series(t)
+                df_v = pd.DataFrame({'t': t_v, vi_isim: v_data})
+                df_i = pd.DataFrame({'t': t_i, ii_isim: i_data})
+                v = veriyi_hizala(df_v, t_series, vi_isim, 'nearest').to_numpy(dtype=float)
+                i = veriyi_hizala(df_i, t_series, ii_isim, 'nearest').to_numpy(dtype=float)
+            else:
+                t = t_v
+                v = v_data
+                i = i_data
+
+        #Zaman kırpma (her iki mod için ortak)
         if self.energy_radio_custom.isChecked():
             try:
                 t_start = float(self.energy_start.text())
@@ -335,30 +509,54 @@ class GrafikPenceresi(QMainWindow):
             if t_start >= t_end:
                 QMessageBox.warning(self, 'Warning', 'Start time must be less than End time.')
                 return
-            mask = (t >= t_start) & (t <= t_end)
+            t_norm = t - t[0]
+            mask = (t_norm >= t_start) & (t_norm <= t_end)
             t = t[mask]
             v = v[mask]
             i = i[mask]
-
             if len(t) < 2:
                 QMessageBox.warning(self, 'Warning', 'Not enough data points in the selected range.')
                 return
 
-        # Hesapla
+        elif self.energy_radio_period.isChecked():
+            period_text = self.energy_period_ms.text().strip()
+            if not period_text:
+                QMessageBox.warning(self, 'Warning', 'Please enter a sampling period in ms.')
+                return
+            try:
+                period_ms = float(period_text)
+            except ValueError:
+                QMessageBox.warning(self, 'Warning', 'Please enter a valid number for sampling period.')
+                return
+            if period_ms <= 0:
+                QMessageBox.warning(self, 'Warning', 'Sampling period must be greater than 0.')
+                return
+            dt_period = period_ms / 1000.0
+            t_norm = t - t[0]
+            sure = t_norm[-1]
+            t_periodic = np.arange(0, sure, dt_period)
+            if len(t_periodic) < 2:
+                QMessageBox.warning(self, 'Warning',
+                                    'Sampling period is larger than the data duration. '
+                                    'Use a smaller period.')
+                return
+            idx = np.searchsorted(t_norm, t_periodic).clip(0, len(t_norm) - 1)
+            t = t_periodic
+            v = v[idx]
+            i = i[idx]
+
+        #Hesapla
         p = v * i
         wh_toplam = np.trapezoid(p, t) / 3600.0
         ah_toplam = np.trapezoid(i, t) / 3600.0
 
-        # Sonuçları göster
         self.energy_wh_label.setText(f'Watt-Hour  :  {wh_toplam:.4f} Wh')
         self.energy_ah_label.setText(f'Ampere-Hour:  {ah_toplam:.4f} Ah')
 
-        #Son hesaplamayı sakla
         self._energy_son_t = t
         self._energy_son_v = v
         self._energy_son_i = i
 
-        #Checkbox işaretliyse grafik aç
         if self.energy_graph_checkbox.isChecked():
             self.energy_grafik_ac(t, v, i)
 
@@ -389,7 +587,7 @@ class GrafikPenceresi(QMainWindow):
 
         ax1.grid(True)
 
-        # Toplam değerleri hesapla
+        #Toplam değerleri hesapla
         wh_toplam = np.trapezoid(p, t) / 3600.0
         ah_toplam = np.trapezoid(i, t) / 3600.0
 
@@ -400,7 +598,7 @@ class GrafikPenceresi(QMainWindow):
         legend.set_draggable(True)
         fig.tight_layout()
 
-        # UI ve Pencere İşlemleri
+        #UI ve Pencere İşlemleri
         self._energy_pencere = QMainWindow()
         self._energy_pencere.setWindowTitle(f'Wh & Ah — Figure {self.figure_no}')
         self._energy_pencere.resize(900, 500)
@@ -408,7 +606,7 @@ class GrafikPenceresi(QMainWindow):
         canvas = FigureCanvas(fig)
         toolbar = NavigationToolbar(canvas, self._energy_pencere)
 
-        # Toggle Mekanizması
+        #Toggle Mekanizması
         def on_click(event):
             if event.inaxes is None: return
             for leg_handle, orig in zip(legend.legend_handles, lines):
@@ -458,6 +656,7 @@ class GrafikPenceresi(QMainWindow):
         if legend is None:
             return
         legend.set_draggable(True)
+        legend.set_visible(self.legend_checkbox.isChecked())
 
         if hasattr(self, "pick_connection") and self.pick_connection:
             self.canvas.mpl_disconnect(self.pick_connection)
@@ -473,7 +672,7 @@ class GrafikPenceresi(QMainWindow):
         self.pick_connection = self.canvas.mpl_connect("pick_event", self.on_pick)
         self.press_connection = self.canvas.mpl_connect("button_press_event", self.legend_sag_tik)
 
-    # Sol ve sağ operand dropdown'larını mevcut U parametreleri + Op sonuçlarıyla güncelle
+    #Sol ve sağ operand dropdown'larını mevcut U parametreleri + Op sonuçlarıyla güncelle
     def ops_dropdown_guncelle(self):
         u_isimleri = list(self.label_map.values())
         op_isimleri = list(self.op_data.keys())
@@ -485,14 +684,11 @@ class GrafikPenceresi(QMainWindow):
         self.sag_operand_combo.clear()
         self.sag_operand_combo.addItems(tum_secenekler)
 
-        # Energy sekmesi dropdown'larını da güncelle
+        #Energy sekmesi dropdown güncelle
         if hasattr(self, 'energy_vi_combo'):
             self.energy_dropdown_guncelle()
 
-        if hasattr (self, 'energy_ii_combo'):
-            self.energy_dropdown_guncelle()
-
-    def _operand_verisini_al(self, isim):
+    def operand_verisini_al(self, isim):
         #Verilen isim için (t, v) döndürür op ise op_data'dan U ise plotted_data'dan alır
         if isim in self.op_data:
             kayit = self.op_data[isim]
@@ -533,7 +729,7 @@ class GrafikPenceresi(QMainWindow):
         self.op_listesi.setItem(satir, 1, QTableWidgetItem(aciklama))
 
         btn_sil = QPushButton('🗑️')
-        btn_sil.clicked.connect(lambda _, btn=btn_sil: self._op_sil_buton(btn))
+        btn_sil.clicked.connect(lambda _, btn=btn_sil: self.op_sil_buton(btn))
         self.op_listesi.setCellWidget(satir, 2, btn_sil)
 
         sabit_mi = self.radio_sabit.isChecked()
@@ -567,7 +763,7 @@ class GrafikPenceresi(QMainWindow):
                 for item in items:
                     self.matlab_listesi.takeItem(self.matlab_listesi.row(item))
 
-                # CSV — del'den ÖNCE, if'in İÇİNDE
+                #CSV listesinden de temizle
                 sil_label_csv = f"{sil_isim} {self.op_data[sil_isim][2]}"
                 items_csv = self.csv_listesi.findItems(sil_label_csv, Qt.MatchFlag.MatchExactly)
                 for item in items_csv:
@@ -582,7 +778,7 @@ class GrafikPenceresi(QMainWindow):
             if item and item.text() in silinecek_isimler:
                 satirlar_silinecek.append(row)
 
-        #Sondan başa doğru sil — index kaymaz
+        #Sondan başa doğru sil
         for row in sorted(satirlar_silinecek, reverse=True):
             self.op_listesi.removeRow(row)
 
@@ -600,7 +796,7 @@ class GrafikPenceresi(QMainWindow):
 
             if eski_isim in self.op_data:
                 kayit = self.op_data[eski_isim]
-                # aciklama içinde eski isim geçiyorsa güncelle
+                #aciklama içinde eski isim geçiyorsa güncelle
                 yeni_aciklama = kayit[2].replace(eski_isim, yeni_isim) if kayit[2] else kayit[2]
                 yeni_op_data[yeni_isim] = (kayit[0], kayit[1], yeni_aciklama,
                                            kayit[3], kayit[4], kayit[5], kayit[6])
@@ -626,14 +822,14 @@ class GrafikPenceresi(QMainWindow):
         self.op_listesi.setItem(satir, 1, QTableWidgetItem(ifade))
 
         btn_sil = QPushButton('🗑️')
-        btn_sil.clicked.connect(lambda _, btn=btn_sil: self._op_sil_buton(btn))
+        btn_sil.clicked.connect(lambda _, btn=btn_sil: self.op_sil_buton(btn))
         self.op_listesi.setCellWidget(satir, 2, btn_sil)
 
         self.op_data[op_isim] = (None, None, ifade, None, None, None, False)
         self.ops_dropdown_guncelle()
         self.ifade_giris.clear()
 
-    def _ifadeyi_hesapla(self, op_isim, ifade):
+    def ifadeyi_hesapla(self, op_isim, ifade):
         kucuk = ifade
 
         #U1, U2 referanslarını çöz
@@ -647,9 +843,9 @@ class GrafikPenceresi(QMainWindow):
                     isim = label
                     break
             if isim is None:
-                QMessageBox.warning(self, "Warning", f"{op_isim}: U{num} bulunamadı.")
+                QMessageBox.warning(self, "Warning", f"{op_isim}: U{num} not found.")
                 return None, None
-            t_arr, v_arr = self._operand_verisini_al(isim)
+            t_arr, v_arr = self.operand_verisini_al(isim)
             if t_arr is None:
                 return None, None
             degiskenler[f"U{num}"] = v_arr
@@ -662,7 +858,7 @@ class GrafikPenceresi(QMainWindow):
         for num in dict.fromkeys(op_refs):
             op_key = f"Op{num}"
             if op_key not in self.op_data or self.op_data[op_key][0] is None:
-                QMessageBox.warning(self, "Warning", f"{op_isim}: {op_key} henüz hesaplanmadı.")
+                QMessageBox.warning(self, "Warning", f"{op_isim}: {op_key} has not been calculated yet.")
                 return None, None
             t_arr, v_arr = self.op_data[op_key][0], self.op_data[op_key][1]
             degiskenler[f"Op{num}"] = v_arr
@@ -671,7 +867,7 @@ class GrafikPenceresi(QMainWindow):
                 t_ref = t_arr
 
         if not degiskenler:
-            QMessageBox.warning(self, "Warning", f"{op_isim}: İfadede geçerli referans bulunamadı.")
+            QMessageBox.warning(self, "Warning", f"{op_isim}: No valid reference found in expression.")
             return None, None
 
         #Uzunlukları eşitle
@@ -679,7 +875,7 @@ class GrafikPenceresi(QMainWindow):
         degiskenler = {k: v[:min_len] for k, v in degiskenler.items()}
         t_ref = t_ref[:min_len]
 
-        #Güvenli eval — sadece matematik fonksiyonlarına izin ver
+        #Güvenli eval = sadece matematik fonksiyonlarına izin verir
         guvenli_ortam = {
             "__builtins__": {},
             "__import__": None,
@@ -689,17 +885,18 @@ class GrafikPenceresi(QMainWindow):
             "sqrt": np.sqrt, "log": np.log, "log10": np.log10,
             "exp": np.exp, "pi": np.pi, "e": np.e,
         }
+
         guvenli_ortam.update(degiskenler)
+
         try:
             v_sonuc = eval(ifade, guvenli_ortam)
         except Exception as e:
-            QMessageBox.warning(self, "Warning", f"{op_isim}: İfade hesaplanamadı: {e}")
+            QMessageBox.warning(self, "Warning", f"{op_isim}: Expression could not be evaluated: {e}")
             return None, None
-
 
         return t_ref, np.asarray(v_sonuc, dtype=float)
 
-    def _op_sil_buton(self, btn):
+    def op_sil_buton(self, btn):
         for row in range(self.op_listesi.rowCount()):
             if self.op_listesi.cellWidget(row, 2) == btn:
                 self.operasyon_sil(row)
@@ -710,20 +907,20 @@ class GrafikPenceresi(QMainWindow):
             return
         ax = self.canvas.figure.axes[0]
 
-        # Eski Op çizgilerini temizle
+        #Eski Op çizgilerini temizle
         for line in ax.get_lines()[:]:
             if getattr(line, "op_cizgisi", False):
                 line.remove()
 
-        # Legend sıfırla
+        #Legend sıfırla
         legend = ax.get_legend()
         if legend:
             legend.remove()
 
-        # Toggle map temizle
+        #Toggle map temizle
         self.line_map = {}
 
-        # csv_listesi ve matlab_listesi'nden eski Op itemlerini tamamen temizle
+        #csv_listesi ve matlab_listesi'nden eski Op itemlerini tamamen temizle
         for liste in [self.matlab_listesi, self.csv_listesi]:
             silinecek = []
             for i in range(liste.count()):
@@ -748,7 +945,7 @@ class GrafikPenceresi(QMainWindow):
 
             #Serbest ifade ise ayrı işle
             if sol is None:
-                t_sonuc, v_sonuc = self._ifadeyi_hesapla(op_isim, aciklama)
+                t_sonuc, v_sonuc = self.ifadeyi_hesapla(op_isim, aciklama)
                 if t_sonuc is None:
                     continue
                 self.op_data[op_isim] = (t_sonuc, v_sonuc, aciklama, None, None, None, False)
@@ -764,23 +961,23 @@ class GrafikPenceresi(QMainWindow):
                     self.csv_listesi.addItem(op_label)
                 continue
 
-            t_sol, v_sol = self._operand_verisini_al(sol)
+            t_sol, v_sol = self.operand_verisini_al(sol)
             if t_sol is None:
-                QMessageBox.warning(self, "Warning", f"{op_isim}: '{sol}' verisi bulunamadı.")
+                QMessageBox.warning(self, "Warning", f"{op_isim}: '{sol}' data not found.")
                 continue
 
             if sabit_mi:
                 try:
                     sabit = float(sag)
                 except ValueError:
-                    QMessageBox.warning(self, "Warning", f"{op_isim}: Geçersiz sabit '{sag}'.")
+                    QMessageBox.warning(self, "Warning", f"{op_isim}: Invalid constant '{sag}'.")
                     continue
                 t_sonuc = t_sol
                 v_sag = sabit
             else:
-                t_sag, v_sag_arr = self._operand_verisini_al(sag)
+                t_sag, v_sag_arr = self.operand_verisini_al(sag)
                 if t_sag is None:
-                    QMessageBox.warning(self, "Warning", f"{op_isim}: '{sag}' verisi bulunamadı.")
+                    QMessageBox.warning(self, "Warning", f"{op_isim}: '{sag}' data not found.")
                     continue
                 min_len = min(len(t_sol), len(t_sag))
                 t_sol = t_sol[:min_len]
@@ -801,7 +998,7 @@ class GrafikPenceresi(QMainWindow):
                 else:
                     continue
             except Exception as e:
-                QMessageBox.warning(self, "Warning", f"{op_isim} hesaplanamadı: {e}")
+                QMessageBox.warning(self, "Warning", f"{op_isim} could not be calculated: {e}")
                 continue
 
             self.op_data[op_isim] = (t_sonuc, v_sonuc, aciklama, sol, op, sag, sabit_mi)
@@ -842,7 +1039,7 @@ class GrafikPenceresi(QMainWindow):
         if self in self.parent_ref.acik_grafikler:
             self.parent_ref.acik_grafikler.remove(self)
 
-        # Matplotlib figure'ı RAM'den temizle
+        #Matplotlib figure'ı RAM'den temizle
         try:
             fig = self.canvas.figure
             fig.clear()
@@ -850,7 +1047,7 @@ class GrafikPenceresi(QMainWindow):
         except (AttributeError, TypeError):
             pass
 
-        # Büyük veri referanslarını serbest bırak
+        #Büyük veri referanslarını serbest bırak
         self.plotted_data.clear()
         self.scatter_data.clear()
         self.op_data.clear()
@@ -881,7 +1078,7 @@ class GrafikPenceresi(QMainWindow):
         if hedef_text is None:
             return
 
-            # MENÜDEN ÖNCE kontrol et
+        #Menüden önce kontrol et
         u_ismi = hedef_text.get_text()
         gercek_label = self.ters_label_map.get(u_ismi)
         if not gercek_label or ' | ' not in gercek_label:
@@ -892,7 +1089,7 @@ class GrafikPenceresi(QMainWindow):
         delete_alias_action = menu.addAction("Delete Alias")
         action = menu.exec(QCursor.pos())
 
-        # Mouse yapışmasını çöz
+        #Mouse yapışmasını çöz
         release_event = MouseEvent(
             'button_release_event', self.canvas,
             event.x, event.y, button=MouseButton.RIGHT
@@ -909,7 +1106,7 @@ class GrafikPenceresi(QMainWindow):
             if orijinal_dosya in alias_map:
                 del alias_map[orijinal_dosya]
 
-                # legend, label_map, ters_label_map, matlab, ops güncelle
+                #legend, label_map, ters_label_map, matlab, ops güncelle
                 for t in legend.get_texts():
                     if mevcut_gosterim in t.get_text():
                         t.set_text(t.get_text().replace(mevcut_gosterim, orijinal_dosya))
@@ -995,13 +1192,13 @@ class GrafikPenceresi(QMainWindow):
 
         kullan = self.parent_ref.radio_use_alias.isChecked()
 
-        # legend text güncelle
+        #legend text güncelle
         if kullan:
             for t in legend.get_texts():
                 if mevcut_gosterim in t.get_text():
                     t.set_text(t.get_text().replace(mevcut_gosterim, yeni_alias))
 
-        # ters_label_map güncelle
+        #ters_label_map güncelle
         if kullan:
             yeni_ters_map = {}
             for u_label, g_label in self.ters_label_map.items():
@@ -1009,28 +1206,28 @@ class GrafikPenceresi(QMainWindow):
                 yeni_ters_map[yeni_u_label] = g_label
             self.ters_label_map = yeni_ters_map
 
-            # label_map güncelle
+            #label_map güncelle
             yeni_label_map = {}
             for g_label, u_label in self.label_map.items():
                 yeni_u_label = u_label.replace(mevcut_gosterim, yeni_alias) if mevcut_gosterim in u_label else u_label
                 yeni_label_map[g_label] = yeni_u_label
             self.label_map = yeni_label_map
 
-        # matlab_listesi güncelle
+        #matlab_listesi güncelle
         if kullan:
             for i in range(self.matlab_listesi.count()):
                 mitem = self.matlab_listesi.item(i)
                 if mitem and mevcut_gosterim in mitem.text():
                     mitem.setText(mitem.text().replace(mevcut_gosterim, yeni_alias))
 
-        # CSV güncelle
+        #CSV listesi güncelle
         if kullan:
             for i in range(self.csv_listesi.count()):
                 citem = self.csv_listesi.item(i)
                 if citem and mevcut_gosterim in citem.text():
                     citem.setText(citem.text().replace(mevcut_gosterim, yeni_alias))
 
-        # ops yeniden uygulanınca kaybolmasın
+        #ops yeniden uygulanınca kaybolmasın
         if kullan:
             for line in ax.get_lines():
                 lbl = str(line.get_label())
@@ -1048,31 +1245,31 @@ class GrafikPenceresi(QMainWindow):
             yeni_op_data[op_isim] = (t, v, yeni_aciklama, yeni_sol, op_char, yeni_sag, sabit_mi)
         self.op_data = yeni_op_data
 
-        # op_listesi UI'ını güncelle
+        #op_listesi UI'ını güncelle
         if kullan:
             for row in range(self.op_listesi.rowCount()):
                 aciklama_item = self.op_listesi.item(row, 1)
                 if aciklama_item and mevcut_gosterim in aciklama_item.text():
                     aciklama_item.setText(aciklama_item.text().replace(mevcut_gosterim, yeni_alias))
 
-        # ops dropdown güncelle
+        #ops dropdown güncelle
         self.ops_dropdown_guncelle()
 
-        # parametre_listesi güncelle
+        #parametre_listesi güncelle
         if kullan:
             for i in range(self.parent_ref.parametre_listesi.count()):
                 pitem = self.parent_ref.parametre_listesi.item(i)
                 if pitem and mevcut_gosterim in pitem.text():
                     pitem.setText(pitem.text().replace(mevcut_gosterim, yeni_alias))
 
-        # ax'taki Line2D nesnelerinin label'larını güncelle
+        #ax'taki Line2D nesnelerinin label'larını güncelle
         if kullan:
             for line in ax.get_lines():
                 lbl = str(line.get_label())
                 if mevcut_gosterim in lbl:
                     line.set_label(lbl.replace(mevcut_gosterim, yeni_alias))
 
-        # scatter nesnelerinin label ve gercek_label'larını güncelle
+        #scatter nesnelerinin label ve gercek_label'larını güncelle
         if kullan:
             for coll in ax.collections:
                 lbl = str(coll.get_label())
@@ -1081,7 +1278,7 @@ class GrafikPenceresi(QMainWindow):
                 if hasattr(coll, 'gercek_label') and mevcut_gosterim in str(coll.gercek_label):
                     coll.gercek_label = coll.gercek_label.replace(mevcut_gosterim, yeni_alias)
 
-        # scatter_data dict'ini güncelle
+        #scatter_data dict'ini güncelle
         if kullan:
             yeni_scatter_data = {}
             for lbl, deger in self.scatter_data.items():
@@ -1089,7 +1286,7 @@ class GrafikPenceresi(QMainWindow):
                 yeni_scatter_data[yeni_lbl] = deger
             self.scatter_data = yeni_scatter_data
 
-        # kaydet ve yenile
+        #kaydet ve yenile
         self.parent_ref.alias_kaydet(eski_alias=mevcut_gosterim, orijinal=orijinal_dosya)
 
         self.canvas.figure.canvas.draw()
@@ -1134,7 +1331,10 @@ class GrafikPenceresi(QMainWindow):
         mat_dict = {}
 
         def temiz_isim_uret(isim, mevcut_dict):
-            temiz = isim.replace(" ", "_").replace("[", "").replace("]", "").replace("/", "_").replace(".", "_").replace("-", "_").replace("+", "plus").replace("*", "mul").replace("(", "").replace(")", "").replace(",", "_")
+            temiz = isim.replace(" ", "_").replace("[", "").replace("]", "").replace("/", "_").replace(".",
+                                                                                                       "_").replace("-",
+                                                                                                                    "_").replace(
+                "+", "plus").replace("*", "mul").replace("(", "").replace(")", "").replace(",", "_")
             if len(temiz) > 61:
                 temiz = temiz[:61]
 
@@ -1186,14 +1386,14 @@ class GrafikPenceresi(QMainWindow):
         if not dosya_yolu.endswith('.csv'):
             dosya_yolu += '.csv'
 
-        # Sisteme göre otomatik ayırıcı seç
+        #Sisteme göre otomatik ayırıcı seç
         try:
             locale.setlocale(locale.LC_ALL, '')
             conv = locale.localeconv()
             decimal_point = conv.get('decimal_point', '.')
             sep = ';' if decimal_point == ',' else ','
         except (locale.Error, KeyError):
-            sep = ';'  # fallback
+            sep = ';'
 
         parcalar = []
 
@@ -1229,7 +1429,7 @@ class GrafikPenceresi(QMainWindow):
         if parcalar:
             df_final = pd.concat(parcalar, axis=1)
 
-            # İsim çakışması kontrolü
+            #İsim çakışması kontrolü
             if os.path.exists(dosya_yolu):
                 base, ext = os.path.splitext(dosya_yolu)
                 sayac = 1
@@ -1244,6 +1444,7 @@ class GrafikPenceresi(QMainWindow):
                 encoding='utf-8-sig',
             )
             QMessageBox.information(self, "Info", f"Export completed.\nSaved as: {os.path.basename(dosya_yolu)}")
+
 
 class AnaPencere(QWidget):
     def __init__(self):
@@ -1271,9 +1472,9 @@ class AnaPencere(QWidget):
         plot_butonlari = QHBoxLayout()
         figure_butonlari = QHBoxLayout()
 
-        left_panel   = QVBoxLayout()
+        left_panel = QVBoxLayout()
         center_panel = QVBoxLayout()
-        right_panel  = QVBoxLayout()
+        right_panel = QVBoxLayout()
 
         #Arama kutuları
         self.dosya_Arama = QLineEdit()
@@ -1285,10 +1486,10 @@ class AnaPencere(QWidget):
         self.parametre_arama.textChanged.connect(self.parametre_ara)
 
         #Dosya alanı
-        self.btn_Klasor_sec     = QPushButton('🗂️Select CSV File')
-        self.dosya_listesi      = QListWidget()
-        self.btndosya_temizle   = QPushButton('🧹Clear File Selection')
-        self.parametre_listesi  = QListWidget()
+        self.btn_Klasor_sec = QPushButton('🗂️Select CSV File')
+        self.dosya_listesi = QListWidget()
+        self.btndosya_temizle = QPushButton('🧹Clear File Selection')
+        self.parametre_listesi = QListWidget()
 
         self.dosya_listesi.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.btnsecilenleri_getir = QPushButton('Get Vars')
@@ -1305,17 +1506,16 @@ class AnaPencere(QWidget):
         alias_radio_layout.addWidget(self.radio_no_alias)
         self.btn_parametre_temizle = QPushButton('🧹Clear Variable Selection')
 
-
         self.parametre_listesi.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.parametre_listesi.customContextMenuRequested.connect(self.parametre_sag_tik)
 
         #Figure paneli
-        self.figure_listesi    = QTreeWidget()
+        self.figure_listesi = QTreeWidget()
         self.figure_listesi.setHeaderHidden(True)
         self.figure_listesi.setColumnCount(2)
         self.btn_add_to_figure = QPushButton('➡️ Add To Figure')
         self.btn_plot = QPushButton('📈 Plot')
-        self.btn_new_figure    = QPushButton('➕ New Figure')
+        self.btn_new_figure = QPushButton('➕ New Figure')
         self.btn_analyze_errors = QPushButton("🔎 Analyze Variable For Errors")
         self.btn_error_plot = QPushButton("Error Plot")
         self.btn_delete_figure = QPushButton('🗑️ Delete Figure')
@@ -1329,16 +1529,17 @@ class AnaPencere(QWidget):
         self.btn_new_figure.clicked.connect(self.yeni_figur_olustur)
         self.btn_plot.clicked.connect(self.plot_bas)
         self.btn_delete_figure.clicked.connect(self.figure_sil)
-        self.figure_listesi.currentItemChanged.connect(lambda current, previous: self.figure_degisti(current) if current else None)
+        self.figure_listesi.currentItemChanged.connect(
+            lambda current, previous: self.figure_degisti(current) if current else None)
         self.btn_add_to_figure.clicked.connect(self.parametreyi_figure_ekle)
         self.btn_analyze_errors.clicked.connect(self.analyze_errors)
         self.btn_error_plot.clicked.connect(self.error_plot)
 
         #Mode seçici
-        self.mode_groupbox  = QGroupBox('Time Mode')
+        self.mode_groupbox = QGroupBox('Time Mode')
         self.radio_realtime = QRadioButton('Realtime')
         self.radio_previous = QRadioButton('Previous')
-        self.radio_nearest  = QRadioButton('Nearest')
+        self.radio_nearest = QRadioButton('Nearest')
         self.radio_realtime.setChecked(True)
 
         self.mode_buttons = QButtonGroup()
@@ -1357,25 +1558,6 @@ class AnaPencere(QWidget):
         self.figures = {1: {'params': [], 'mode': 'realtime', 'units': []}}
         self.current_figure = 1
         self.figure_listesini_guncelle()
-
-        #Kategori radio butonları
-        self.kategori_group = QButtonGroup()
-        self.kategori_group.setExclusive(False)
-        self.radio_stanag = QRadioButton('Stanag')
-        self.radio_eml = QRadioButton('EML LRU')
-        self.radio_fml = QRadioButton('FML')
-        self.radio_fca = QRadioButton('FCA')
-        self.kategori_group.addButton(self.radio_stanag)
-        self.kategori_group.addButton(self.radio_eml)
-        self.kategori_group.addButton(self.radio_fml)
-        self.kategori_group.addButton(self.radio_fca)
-
-        kategori_satir1 = QHBoxLayout()
-        kategori_satir1.addWidget(self.radio_stanag)
-        kategori_satir1.addWidget(self.radio_eml)
-        kategori_satir2 = QHBoxLayout()
-        kategori_satir2.addWidget(self.radio_fml)
-        kategori_satir2.addWidget(self.radio_fca)
 
         #LEFT PANEL
         left_panel.addWidget(QLabel('CSV File in the Folder'))
@@ -1409,13 +1591,12 @@ class AnaPencere(QWidget):
 
         #ANA LAYOUT
         mainlayout = QHBoxLayout()
-        mainlayout.addLayout(left_panel,   2)
+        mainlayout.addLayout(left_panel, 2)
         mainlayout.addLayout(center_panel, 2)
-        mainlayout.addLayout(right_panel,  3)
+        mainlayout.addLayout(right_panel, 3)
         self.setLayout(mainlayout)
 
     #FONKSİYONLAR
-
     def klasor_sec(self):
         klasor = QFileDialog.getExistingDirectory(self, 'Select File')
         if not klasor:
@@ -1432,7 +1613,7 @@ class AnaPencere(QWidget):
 
         try:
             from error_analyzer import ErrorClassLoader
-            uygulama_klasoru = _get_app_dir()
+            uygulama_klasoru = get_app_dir()
             xlsx_listesi = [
                 f for f in os.listdir(uygulama_klasoru)
                 if 'ERROR_CLASS' in f.upper() and f.upper().endswith('.XLSX')
@@ -1448,9 +1629,8 @@ class AnaPencere(QWidget):
             self.error_loader = None
             QMessageBox.warning(self, "Warning", f"Error class files could not be loaded:\n{e}")
 
-
         #Alias dosyasını yükle
-        uygulama_dizini = _get_writable_dir()
+        uygulama_dizini = get_writable_dir()
         alias_yolu = os.path.join(uygulama_dizini, "data", "aliases.json")
         if os.path.exists(alias_yolu):
             try:
@@ -1578,9 +1758,9 @@ class AnaPencere(QWidget):
             pencere.op_data = yeni_op_data
             pencere.ops_dropdown_guncelle()
 
-            #op_listesi UI güncelle
+            #op_listesi güncelle
             for row in range(pencere.op_listesi.rowCount()):
-                item = pencere.op_listesi.item(row,1)
+                item = pencere.op_listesi.item(row, 1)
                 if item:
                     item.setText(guncelle(item.text()))
 
@@ -1639,7 +1819,7 @@ class AnaPencere(QWidget):
             if not ok or not yeni.strip():
                 return
 
-            # Yeni alias başka bir dosyada kullanılıyor mu kontrol et
+            #Yeni alias başka bir dosyada kullanılıyor mu kontrol et
             for dosya, alias in self.alias_map.items():
                 if alias == yeni.strip() and dosya != orijinal_dosya:
                     QMessageBox.warning(self, "Warning",
@@ -1668,28 +1848,28 @@ class AnaPencere(QWidget):
         if not self.klasor:
             return
 
-        uygulama_dizini = _get_writable_dir()
+        uygulama_dizini = get_writable_dir()
         alias_yolu = os.path.join(uygulama_dizini, "data", "aliases.json")
         os.makedirs(os.path.dirname(alias_yolu), exist_ok=True)
         with open(alias_yolu, 'w', encoding='utf-8') as f:
             json.dump(self.alias_map, f, ensure_ascii=False, indent=2)
 
-        # Figure listesindeki eski adları güncelle
+        #Figure listesindeki eski adları güncelle
         if eski_alias and orijinal:
             yeni_ad = self.alias_map.get(orijinal, orijinal) if self.radio_use_alias.isChecked() else orijinal
 
-            # Figure params güncelle
+            #Figure params güncelle
             for fig_no, fig_data in self.figures.items():
                 fig_data['params'] = [
                     f"{yeni_ad} | {p.split(' | ', 1)[1]}" if p.startswith(f"{eski_alias} | ") else p
                     for p in fig_data['params']
                 ]
 
-            # Açık grafik pencerelerini güncelle
+            #Açık grafik pencerelerini güncelle
             for pencere in self.acik_grafikler:
                 ax = pencere.canvas.figure.axes[0]
 
-                # matlab_listesi
+                #matlab_listesi
                 for i in range(pencere.matlab_listesi.count()):
                     mitem = pencere.matlab_listesi.item(i)
                     if mitem and eski_alias in mitem.text():
@@ -1701,13 +1881,13 @@ class AnaPencere(QWidget):
                     if citem and eski_alias in citem.text():
                         citem.setText(citem.text().replace(eski_alias, yeni_ad))
 
-                # op_listesi UI
+                #op_listesi
                 for row in range(pencere.op_listesi.rowCount()):
                     aciklama_item = pencere.op_listesi.item(row, 1)
                     if aciklama_item and eski_alias in aciklama_item.text():
                         aciklama_item.setText(aciklama_item.text().replace(eski_alias, yeni_ad))
 
-                # op_data
+                #op_data
                 yeni_op_data = {}
                 for op_isim, kayit in pencere.op_data.items():
                     t, v, aciklama, sol, op_char, sag, sabit_mi = kayit
@@ -1722,7 +1902,7 @@ class AnaPencere(QWidget):
                 pencere.op_data = yeni_op_data
                 pencere.ops_dropdown_guncelle()
 
-                # label_map ve ters_label_map
+                #label_map ve ters_label_map
                 yeni_label_map = {}
                 for g_label, u_label in pencere.label_map.items():
                     yeni_label_map[g_label] = u_label.replace(eski_alias, yeni_ad) if eski_alias in u_label else u_label
@@ -1736,7 +1916,7 @@ class AnaPencere(QWidget):
 
                 pencere.ops_dropdown_guncelle()
 
-                # legend ve line label'ları
+                #legend ve line label'ları
                 legend = ax.get_legend()
                 if legend:
                     for t in legend.get_texts():
@@ -1828,7 +2008,7 @@ class AnaPencere(QWidget):
         self.current_figure = fig_no
         self.figure_listesini_guncelle()
         self.current_figure = gecici
-        # Silme yapılan figure'ı expand et
+
         for i in range(self.figure_listesi.topLevelItemCount()):
             item = self.figure_listesi.topLevelItem(i)
             try:
@@ -1877,7 +2057,7 @@ class AnaPencere(QWidget):
             QMessageBox.warning(self, 'Warning', 'Select Variables.')
             return
 
-        parametre_map  = {}
+        parametre_map = {}
         secili_dosyalar = set()
         pid = 1
 
@@ -1909,7 +2089,7 @@ class AnaPencere(QWidget):
 
             aktif_alias = self.alias_map if self.radio_use_alias.isChecked() else {}
 
-            # Aynı figure_no'dan eski pencereyi kapat
+            #Aynı figure_no'dan eski pencereyi kapat
             for pencere in self.acik_grafikler[:]:
                 if pencere.figure_no == self.current_figure:
                     pencere.close()
@@ -1924,7 +2104,7 @@ class AnaPencere(QWidget):
             )
 
             if uyarilar:
-                QMessageBox.warning(self, "Uyarı", "\n".join(uyarilar))
+                QMessageBox.warning(self, "Warning", "\n".join(uyarilar))
 
             popup_window = GrafikPenceresi(fig, self.current_figure, mode, self)
             popup_window.plotted_data = plotted_data
@@ -2009,14 +2189,14 @@ class AnaPencere(QWidget):
 
             #Tabloda değişken adı farklı case ile kayıtlı olabilir; case-insensitive ara
             sistem_tablosu = self.error_loader.error_tables[system]
-            kolon_key = kolon_adi  #önce birebir dene
+            kolon_key = kolon_adi
             if kolon_key not in sistem_tablosu:
                 kolon_lower = kolon_adi.lower()
                 kolon_key = next(
                     (k for k in sistem_tablosu if k.lower() == kolon_lower), None
                 )
                 if kolon_key is None:
-                    continue  #tabloda yok, bu değişken için hata analizi yapma
+                    continue
 
             limits = sistem_tablosu[kolon_key]
             min_val = limits["min"]
@@ -2027,22 +2207,20 @@ class AnaPencere(QWidget):
             if dosya_eml_mi and system not in eml_10_yok:
                 max_change = max_change * 10
 
-
             ''''MATLAB referansı:
             SMU/AP/RD/RC: sadece 'd' ile başlayan değişkenlerde OVERSHOOT+SPIKE
             VMM: 'd' ile başlayıp 'fixed' içerenlerde OVERSHOOT+SPIKE; diğer 'd' → sadece range; 'd' dışı özel
             EGID/EGIE/EGIS/ADC: tabloda bulunan tüm değişkenler için tam analiz (max_change==0 olanlar hariç)'''
-
 
             sistem_adi = system.upper()
             d_ile_basliyor = kolon_adi.lower().startswith('d')
             fixed_iceriyor = 'fixed' in kolon_adi.lower()
 
             egid_egie_egis_adc_sistemler = (
-                'EGID' in sistem_adi or
-                'EGIE' in sistem_adi or
-                'EGIS' in sistem_adi or
-                'ADC'  in sistem_adi
+                    'EGID' in sistem_adi or
+                    'EGIE' in sistem_adi or
+                    'EGIS' in sistem_adi or
+                    'ADC' in sistem_adi
             )
 
             if egid_egie_egis_adc_sistemler:
@@ -2131,8 +2309,8 @@ class AnaPencere(QWidget):
             coll.remove()
 
         for label, data in figure_errors.items():
-            t_arr  = np.asarray(data["t"])
-            v_arr  = np.asarray(data["values"])
+            t_arr = np.asarray(data["t"])
+            v_arr = np.asarray(data["values"])
             errors = data["errors"]
             u_ismi = popup.label_map.get(label, label)
 

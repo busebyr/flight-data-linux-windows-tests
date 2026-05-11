@@ -34,15 +34,14 @@ class ErrorClassLoader:
             self.error_tables[system_name] = system_dict
 
 
-# ERROR ANALYSIS
+#ERROR ANALYSIS
 def analyze_errors(values, min_val, max_val, max_change):
 
     values = np.array(values, dtype=float)
     n = len(values)
 
-    # CONSTANT OUTPUT
-    # Sadece her sabit bloğun İLK indexini kaydet (çakışan pencereleri tekrarlama).
-    # Önceki yaklaşım her kayan pencere başlangıcını ekliyordu → aynı noktaya
+    #CONSTANT OUTPUT
+    #Sadece her sabit bloğun İLK indexini kaydet (çakışan pencereleri tekrarlama).
     window = 5
     constant_flags = []
     if n >= window:
@@ -51,13 +50,13 @@ def analyze_errors(values, min_val, max_val, max_change):
             pencere = values[i:i + window]
             if np.all(np.isclose(pencere, pencere[0], equal_nan=False)):
                 if not in_block:
-                    constant_flags.append(i)   # bloğun yalnızca ilk indexi
+                    constant_flags.append(i)   #bloğun yalnızca ilk indexi
                     in_block = True
             else:
                 in_block = False
 
-    # OVERSHOOT ve SPIKE
-    # max_change == 0 ise hesaplama yapma
+    #OVERSHOOT ve SPIKE
+    #max_change == 0 ise hesaplama yapma
     if max_change != 0 and n >= 3:
         diff_prev = values[1:-1] - values[:-2]
         diff_next = values[2:]   - values[1:-1]
@@ -72,15 +71,15 @@ def analyze_errors(values, min_val, max_val, max_change):
         )
         spike_flags = (np.where(spike_mask)[0] + 1).tolist()
 
-        # Spike olan noktaları ve onların komşularını OVERSHOOT listesinden çıkar.
-        # SPIKE noktasına giriş (idx-1) ve çıkış (idx+1) geçişleri de OVERSHOOT değil.
+        #Spike olan noktaları ve onların komşularını OVERSHOOT listesinden çıkar.
+        #SPIKE noktasına giriş (idx-1) ve çıkış (idx+1) geçişleri de OVERSHOOT değil.
         spike_ve_komsu = set()
         for s in spike_flags:
             spike_ve_komsu.update([s - 1, s, s + 1])
         overshoot_flags = [i for i in overshoot_flags if i not in spike_ve_komsu]
 
-        # CONSTANT OUTPUT bloğu içindeki ve geçiş noktalarını OVERSHOOT/SPIKE'tan çıkar.
-        # Sabit bloğa giriş ve çıkış geçişleri hata değil, beklenen davranıştır.
+        #CONSTANT OUTPUT bloğu içindeki ve geçiş noktalarını OVERSHOOT/SPIKE'tan çıkar.
+        #Sabit bloğa giriş ve çıkış geçişleri hata değil, beklenen davranıştır.
         if constant_flags:
             constant_indices = set()
             for start in constant_flags:
@@ -105,7 +104,7 @@ def analyze_errors(values, min_val, max_val, max_change):
         spike_flags     = []
 
     #OUT OF RANGE
-    # min ve max ikisi de 0 ise sınır tanımlı değil -> atla.
+    #min ve max ikisi de 0 ise sınır tanımlı değil -> atla.
     if not (min_val == 0 and max_val == 0):
         range_mask  = (values > max_val) | (values < min_val)
         range_flags = np.where(range_mask)[0].tolist()
@@ -120,8 +119,8 @@ def analyze_errors(values, min_val, max_val, max_change):
     }
 
 
-# VARIABLE SYSTEM FINDER
-# dosya_adi_upper: dosya adının büyük harf hali — önce buna uyan sistemi seç
+#VARIABLE SYSTEM FINDER
+#dosya_adi_upper: dosya adının büyük harf hali —> önce buna uyan sistemi seç
 def find_variable_system(loader, variable_name, prefer_eml=False, dosya_adi_upper=""):
     variable_lower = variable_name.lower()
     bulunan = []
@@ -134,14 +133,14 @@ def find_variable_system(loader, variable_name, prefer_eml=False, dosya_adi_uppe
     if not bulunan:
         return None
 
-    # Öncelik sırası:
-    # 1. Dosya adıyla örtüşen sistem
-    # 2. EML tercih ediliyorsa EML tablosu
-    # 3. Normal tablo
-    # 4. İlk bulunan
+    #Öncelik sırası:
+    #1.Dosya adıyla örtüşen sistem
+    #2.EML tercih ediliyorsa EML tablosu
+    #3.Normal tablo
+    #4.İlk bulunan
 
     if dosya_adi_upper:
-        # Dosya adında geçen anahtar kelimelerle sistem adını eşleştir
+        #Dosya adında geçen anahtar kelimelerle sistem adını eşleştir
         sistem_anahtar = {
             'EGID': 'EGID',
             'EGIE': 'EGIE',
@@ -155,10 +154,10 @@ def find_variable_system(loader, variable_name, prefer_eml=False, dosya_adi_uppe
         }
         for anahtar, sistem_prefix in sistem_anahtar.items():
             if anahtar in dosya_adi_upper:
-                # Bu dosyayla örtüşen sistemleri filtrele
+                #Bu dosyayla örtüşen sistemleri filtrele
                 eslesenler = [s for s in bulunan if sistem_prefix in s]
                 if eslesenler:
-                    # EML dosyasıysa EML tablosunu, değilse normal tabloyu tercih et
+                    #EML dosyasıysa EML tablosunu, değilse normal tabloyu tercih et
                     if prefer_eml:
                         eml = [s for s in eslesenler if '_EML' in s]
                         if eml:
@@ -180,9 +179,9 @@ def check_special_variable(name, values):
     values = np.array(values, dtype=float)
     unique_vals = np.unique(values[~np.isnan(values)])
 
-    # VMM özel değişkenler
+    #VMM özel değişkenler
     if name.lower() == "ivehiclemode":
-        valid = set(range(0, 16))  # 0-15
+        valid = set(range(0, 16))
         error_idx = np.where([v not in valid for v in values])[0]
         return {"INVALID SIGNAL": error_idx.tolist()}
 

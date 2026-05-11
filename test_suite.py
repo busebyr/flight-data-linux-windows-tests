@@ -25,7 +25,7 @@ from analiz_motoru import dosyalari_yukle, DosyaHatasi
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QApplication, QTableWidgetItem, QPushButton)
 from analiz_motoru import grafikleri_ciz
-
+from scipy.integrate import cumulative_trapezoid
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -233,8 +233,8 @@ class TestVeriyiHizala(unittest.TestCase):
         df = pd.DataFrame({'time': [0.0, 1.0, 2.0], 'value': [10, 20, 30]})
         timeline=pd.Series([0.5, 1.5])
         sonuc = veriyi_hizala(df, timeline, 'value', 'previous')
-        self.assertEqual(sonuc.iloc[0], 10.0)  # 0.5 anında önceki değer 10.0
-        self.assertEqual(sonuc.iloc[1], 20.0)  # 1.5 anında önceki değer 20.0
+        self.assertEqual(sonuc.iloc[0], 10.0)  #0.5 anında önceki değer 10.0
+        self.assertEqual(sonuc.iloc[1], 20.0)  #1.5 anında önceki değer 20.0
 
     def test_nearest_yakin_degeri_almali(self):
         df = pd.DataFrame({'time':[0.0, 1.0, 2.0], 'value': [10, 20, 30]})
@@ -269,7 +269,7 @@ class TestAnalyzeErrors(unittest.TestCase):
         self.assertEqual(sonuc['CONSTANT OUTPUT'], [])
 
     def test_overshoot_esigi_asan_degisim(self):
-        # [0, 0, 15, 20] — index 2'de diff=15 > max_change=10, geri dönüş yok → spike değil, overshoot
+        #[0, 0, 15, 20] — index 2'de diff=15 > max_change=10, geri dönüş yok -> spike değil, overshoot
         sonuc = analyze_errors([0, 0, 15, 20], min_val=0, max_val=200, max_change=10)
         self.assertIn(2, sonuc['OVERSHOOT'])
         self.assertNotIn(2, sonuc['SPIKE'])
@@ -444,7 +444,7 @@ class TestCheckSpecialVariable(unittest.TestCase):
         self.assertIsNone(sonuc)
 
     def test_binary_uzun_isim_bypass(self):
-        uzun_isim = 'b' + 'x' * 20  # 21 karakter
+        uzun_isim = 'b' + 'x' * 20  #21 karakter
         sonuc = check_special_variable(uzun_isim, [0, 2])
         self.assertIsNone(sonuc)
 
@@ -473,7 +473,7 @@ class TestCloseEvent(unittest.TestCase):
 
     def setUp(self):
         self.app = QApplication.instance() or QApplication(sys.argv)
-        self.acik_grafikler = []  #gerçek liste, tip sorunu çözülür
+        self.acik_grafikler = []
 
     def make_pencere(self):
         fig, ax = plt.subplots()
@@ -528,7 +528,7 @@ class TestCloseEvent(unittest.TestCase):
 class TestDosyalariYukle(unittest.TestCase):
 
     def sahte_csv_olustur(self):
-        # skiprows=1 olduğu için ilk satır atlanır, ikinci satır header olur
+        #skiprows=1 olduğu için ilk satır atlanır, ikinci satır header olur
         icerik = "meta_satir\nTimestamp\tvalue\n1000000\t5.0\n2000000\t10.0\n"
         return pd.read_csv(io.StringIO(icerik), skiprows=1, sep='\t')
 
@@ -1134,13 +1134,13 @@ class TestOperandVerisiAl(unittest.TestCase):
         t = np.array([0.0, 1.0])
         v = np.array([10.0, 20.0])
         self.pencere.op_data = {'Op1': (t,v, 'aciklama', None, None, None, None)}
-        t_sonuc, v_sonuc = self.pencere._operand_verisini_al('Op1')
+        t_sonuc, v_sonuc = self.pencere.operand_verisini_al('Op1')
         np.testing.assert_array_equal(t_sonuc, t)
         np.testing.assert_array_equal(v_sonuc, v)
 
     def test_op_data_da_olan_isim_none_donmeli(self):
         self.pencere.op_data = {'Op1':(None, None, 'aciklama', None, None, None, None)}
-        t_sonuc, v_sonuc = self.pencere._operand_verisini_al('Op1')
+        t_sonuc, v_sonuc = self.pencere.operand_verisini_al('Op1')
         self.assertIsNone(t_sonuc)
         self.assertIsNone(v_sonuc)
 
@@ -1149,19 +1149,19 @@ class TestOperandVerisiAl(unittest.TestCase):
         v = np.array([5.0, 6.0])
         self.pencere.ters_label_map = {'U1': 'dosya.csv | kolon1'}
         self.pencere.plotted_data = {'dosya.csv | kolon1': (t,v)}
-        t_sonuc, v_sonuc = self.pencere._operand_verisini_al('U1')
+        t_sonuc, v_sonuc = self.pencere.operand_verisini_al('U1')
         np.testing.assert_array_equal(t_sonuc, t)
         np.testing.assert_array_equal(v_sonuc, v)
 
     def test_ters_label_var_op_data_yok_none_donmeli(self):
         self.pencere.ters_label_map = {'U1': 'dosya.csv | kolon1'}
         self.pencere.plotted_data = {}
-        t_sonuc, v_sonuc = self.pencere._operand_verisini_al('U1')
+        t_sonuc, v_sonuc = self.pencere.operand_verisini_al('U1')
         self.assertIsNone(t_sonuc)
         self.assertIsNone(v_sonuc)
 
     def test_hicbir_yerde_yok_none_donmeli(self):
-        t_sonuc, v_sonuc = self.pencere._operand_verisini_al('Olmayan')
+        t_sonuc, v_sonuc = self.pencere.operand_verisini_al('Olmayan')
         self.assertIsNone(t_sonuc)
         self.assertIsNone(v_sonuc)
 
@@ -1185,7 +1185,7 @@ class TestIfadeyiHesapla(unittest.TestCase):
         self.pencere.label_map = {'dosya.csv | kolon1': 'U1 kolon1'}
         self.pencere.ters_label_map = {'U1 kolon1': 'dosya.csv | kolon1'}
         self.pencere.plotted_data = {'dosya.csv | kolon1': (t, v)}
-        t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', 'U1')
+        t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', 'U1')
         np.testing.assert_array_equal(t_sonuc, t)
         np.testing.assert_array_equal(v_sonuc, v)
 
@@ -1205,13 +1205,13 @@ class TestIfadeyiHesapla(unittest.TestCase):
             'dosya.csv | kolon1': (t, v1),
             'dosya.csv | kolon2': (t, v2)
         }
-        t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', 'U1+U2')
+        t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', 'U1+U2')
         np.testing.assert_array_equal(v_sonuc, v1+v2)
 
     def test_u_referansi_label_mapte_yoksa_none_donmeli(self):
         self.pencere.label_map = {}
         with patch('main.QMessageBox.warning') as mock_warning:
-            t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', 'U1')
+            t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', 'U1')
             self.assertIsNone(t_sonuc)
             self.assertIsNone(v_sonuc)
             mock_warning.assert_called_once()
@@ -1220,20 +1220,20 @@ class TestIfadeyiHesapla(unittest.TestCase):
         t = np.array([0.0, 1.0, 2.0])
         v = np.array([2.0, 4.0, 6.0])
         self.pencere.op_data = {'Op1': (t, v, 'aciklama', None, None, None)}
-        t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op2', 'Op1*2')
+        t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op2', 'Op1*2')
         np.testing.assert_array_equal(v_sonuc, v*2)
 
     def test_op_referansi_op_data_da_yoksa_none_donmeli(self):
         self.pencere.op_data = {}
         with patch('main.QMessageBox.warning') as mock_warning:
-            t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op2', 'Op1')
+            t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op2', 'Op1')
             self.assertIsNone(t_sonuc)
             self.assertIsNone(v_sonuc)
             mock_warning.assert_called_once()
 
     def test_hic_referans_yoksa_none_donmeli(self):
         with patch('main.QMessageBox.warning') as mock_warning:
-            t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', '42')
+            t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', '42')
             self.assertIsNone(t_sonuc)
             self.assertIsNone(v_sonuc)
             mock_warning.assert_called_once()
@@ -1245,7 +1245,7 @@ class TestIfadeyiHesapla(unittest.TestCase):
         self.pencere.ters_label_map = {'U1 kolon1': 'dosya.csv | kolon1'}
         self.pencere.plotted_data = {'dosya.csv | kolon1': (t, v)}
         with patch('main.QMessageBox.warning') as mock_warning:
-            t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', 'U1 +++')
+            t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', 'U1 +++')
             self.assertIsNone(t_sonuc)
             self.assertIsNone(v_sonuc)
             mock_warning.assert_called_once()
@@ -1267,7 +1267,7 @@ class TestIfadeyiHesapla(unittest.TestCase):
             'dosya.csv | kolon1': (t1, v1),
             'dosya.csv | kolon2': (t2, v2)
         }
-        t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', 'U1+U2')
+        t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', 'U1+U2')
         self.assertEqual(len(v_sonuc), 2)
 
     def test_matematik_fonksiyon_dogru_calisimali(self):
@@ -1276,7 +1276,7 @@ class TestIfadeyiHesapla(unittest.TestCase):
         self.pencere.label_map = {'dosya.csv | kolon1': 'U1 kolon1'}
         self.pencere.ters_label_map = {'U1 kolon1': 'dosya.csv | kolon1'}
         self.pencere.plotted_data = {'dosya.csv | kolon1': (t, v)}
-        t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', 'sin(U1)')
+        t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', 'sin(U1)')
         np.testing.assert_array_almost_equal(v_sonuc, np.sin(v))
 
     def test_tehlikeli_ifade_none_donmeli(self):
@@ -1286,7 +1286,7 @@ class TestIfadeyiHesapla(unittest.TestCase):
         self.pencere.ters_label_map = {'U1 kolon1': 'dosya.csv | kolon1'}
         self.pencere.plotted_data = {'dosya.csv | kolon1': (t, v)}
         with patch('main.QMessageBox.warning') as mock_warning:
-            t_sonuc, v_sonuc = self.pencere._ifadeyi_hesapla('Op1', '__import__("os")')
+            t_sonuc, v_sonuc = self.pencere.ifadeyi_hesapla('Op1', '__import__("os")')
             self.assertIsNone(t_sonuc)
             self.assertIsNone(v_sonuc)
             mock_warning.assert_called_once()
@@ -1521,21 +1521,21 @@ class TestOpSilButon(unittest.TestCase):
     def test_dogru_indx_ile_operasyon_sil_cagirmali(self):
         btn = self.satir_ekle('Op1', 'U1+U2')
         with patch.object(self.pencere, 'operasyon_sil') as mock_sil:
-            self.pencere._op_sil_buton(btn)
+            self.pencere.op_sil_buton(btn)
             mock_sil.assert_called_once_with(0)
 
     def test_olmayan_butonda_operasyon_sil_cagirilmali(self):
         self.satir_ekle('Op1', 'U1+U2')
         yabanci_btn = QPushButton('🗑️')
         with patch.object(self.pencere, 'operasyon_sil') as mock_sil:
-            self.pencere._op_sil_buton(yabanci_btn)
+            self.pencere.op_sil_buton(yabanci_btn)
             mock_sil.assert_not_called()
 
     def test_coklu_satirda_dogru_satir_silinmeli(self):
         self.satir_ekle('Op1', 'U1 + U2')
         btn2 = self.satir_ekle('Op2', 'U1 * 2')
         with patch.object(self.pencere, 'operasyon_sil') as mock_sil:
-            self.pencere._op_sil_buton(btn2)
+            self.pencere.op_sil_buton(btn2)
             mock_sil.assert_called_once_with(1)
 
 
@@ -1579,7 +1579,7 @@ class TestOperasyonlariUygula(unittest.TestCase):
         self.pencere.operasyonlari_uygula()
         self.assertIn(line, ax.get_lines())
 
-    def test_serbest_ifade_line_eklenmeli_op_data_guncellenmeli(self): #?
+    def test_serbest_ifade_line_eklenmeli_op_data_guncellenmeli(self):
         t = np.array([0.0, 1.0])
         v = np.array([1.0, 2.0])
         self.pencere.label_map = {'dosya.csv | kolon1': 'U1 kolon1'}
@@ -3260,7 +3260,7 @@ class TestFiguresGuncelle(unittest.TestCase):
                 guncelle_fn(ALIAS_MAP, True, sag) if not sabit_mi else sag,
                 sabit_mi
             )
-        self.assertEqual(yeni_op_data['op1'][5], '5.0')  # sag değişmemeli
+        self.assertEqual(yeni_op_data['op1'][5], '5.0')  #sag değişmemeli
 
     def test_op_data_sabit_mi_false_sag_donusur(self):
         t, v = np.array([0.0]), np.array([1.0])
@@ -3276,7 +3276,7 @@ class TestFiguresGuncelle(unittest.TestCase):
                 guncelle_fn(ALIAS_MAP, True, sag) if not sabit_mi else sag,
                 sabit_mi
             )
-        self.assertEqual(yeni_op_data['op1'][5], 'Uçuş 2')  # sag dönüşmeli
+        self.assertEqual(yeni_op_data['op1'][5], 'Uçuş 2')  #sag dönüşmeli
 
 
 def csv_export_logic(plotted_data, label_map, scatter_data, op_data, secili, dosya_yolu):
@@ -3374,55 +3374,138 @@ class TestCsvExport(unittest.TestCase):
         self.assertEqual(len(df), 3)
         self.assertTrue(df['ch1_v'].isna().any())
 
-
 class TestEnergyHesapla(unittest.TestCase):
 
     def setUp(self):
         fig, ax = plt.subplots()
         parent = MagicMock()
         parent.acik_grafikler = []
-        self.pencere = GrafikPenceresi(fig, figure_no=1, mode='realtime', parent_ref=parent)
+        self.pencere = GrafikPenceresi(fig, figure_no=1, mode='previous', parent_ref=parent)
         plt.close(fig)
 
-        self.pencere.op_data = {}
-        self.pencere.ters_label_map = {}
-        self.pencere.plotted_data = {}
-
+        self.pencere.energy_vi_combo.clear()
         self.pencere.energy_vi_combo.addItem('Voltage')
-        self.pencere.energy_ii_combo.addItem('Current')
         self.pencere.energy_vi_combo.setCurrentText('Voltage')
+
+        self.pencere.energy_ii_combo.clear()
+        self.pencere.energy_ii_combo.addItem('Current')
         self.pencere.energy_ii_combo.setCurrentText('Current')
 
         self.pencere.energy_radio_full.setChecked(True)
+        self.pencere.mode = 'previous'
 
-        self.pencere.energy_graph_checkbox.setChecked(False)
+    def tearDown(self):
+        plt.close('all')
 
     def v_i_mock_kur(self, t_v, v_data, t_i, i_data):
         def side_effect(isim):
             if isim == 'Voltage':
-                return (t_v, v_data)
+                return t_v, v_data
             elif isim == 'Current':
-                return (t_i, i_data)
-            return (None, None)
-        self.pencere._operand_verisini_al = MagicMock(side_effect=side_effect)
+                return t_i, i_data
+            return None, None
+        self.pencere.operand_verisini_al = MagicMock(side_effect=side_effect)
 
-    def test_realtime_farkli_ornekleme_hizlari(self):
-        t_v = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
-        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        t_i = np.array([0.0, 2.0, 4.0])
-        i_data = np.array([0.5, 1.5, 2.5])
+    def test_harici_ayni_kolon_uyari(self):
+        self.pencere.mode = 'external'
+        self.pencere.energy_vi_combo.clear()
+        self.pencere.energy_vi_combo.addItem('Voltage')
+        self.pencere.energy_vi_combo.setCurrentText('Voltage')
+        self.pencere.energy_ii_combo.clear()
+        self.pencere.energy_ii_combo.addItem('Voltage')
+        self.pencere.energy_ii_combo.setCurrentText('Voltage')
 
-        self.pencere.mode = 'realtime'
-        self.v_i_mock_kur(t_v, v_data, t_i, i_data)
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_harici_float_cevirim_hatasi_uyari(self):
+        self.pencere.mode = 'external'
+        df = pd.DataFrame({
+            'timestamp': [1000000, 2000000, 3000000],
+            'Voltage': ['abc', 'def', 'ghi'],
+            'Current': [1.0, 2.0, 3.0]
+        })
+        self.pencere._energy_df = df
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_harici_timestamp_kolonu_varsa_saniyeye_cevirilmeli(self):
+        self.pencere.mode = 'external'
+        timestamps = np.array([1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000])
+        df = pd.DataFrame({
+            'timestamp': timestamps,
+            'Voltage': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'Current': [0.5, 1.0, 1.5, 2.0, 2.5]
+        })
+        self.pencere._energy_df = df
 
         self.pencere.energy_hesapla()
 
-        wh_text = self.pencere.energy_wh_label.text()
-        self.assertIn('Wh', wh_text)
-        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
-        self.assertFalse(np.isnan(wh_val))
+        self.assertIsNotNone(self.pencere._energy_son_t)
+        np.testing.assert_array_almost_equal(
+            self.pencere._energy_son_t,
+            timestamps / 1e6,
+            decimal=5
+        )
 
-    def test_realtime_ortusmeyen_aralik_uyari_vermeli(self):
+    def test_harici_timestamp_yok_period_girilmezse_uyari(self):
+        self.pencere.mode = 'external'
+        df = pd.DataFrame({
+            'Voltage': [1.0, 2.0, 3.0],
+            'Current': [0.5, 1.0, 1.5]
+        })
+        self.pencere._energy_df = df
+        self.pencere.energy_period_ms.setText('')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_harici_timestamp_yok_gecerli_period_arange_ile_t(self):
+        self.pencere.mode = 'external'
+        n = 5
+        df = pd.DataFrame({
+            'Voltage': [1.0] * n,
+            'Current': [2.0] * n
+        })
+        self.pencere._energy_df = df
+        self.pencere.energy_period_ms.setText('100')
+
+        self.pencere.energy_hesapla()
+
+        self.assertIsNotNone(self.pencere._energy_son_t)
+        beklenen = np.arange(n) * 0.1
+        np.testing.assert_array_almost_equal(
+            self.pencere._energy_son_t,
+            beklenen - beklenen[0],
+            decimal=5
+        )
+
+    def test_plotted_ayni_kanal_uyari(self):
+        self.pencere.mode = 'plotted'
+        self.pencere.energy_vi_combo.clear()
+        self.pencere.energy_vi_combo.addItem('Channel1')
+        self.pencere.energy_vi_combo.setCurrentText('Channel1')
+        self.pencere.energy_ii_combo.clear()
+        self.pencere.energy_ii_combo.addItem('Channel1')
+        self.pencere.energy_ii_combo.setCurrentText('Channel1')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_plotted_veri_alinamazsa_uyari(self):
+        self.pencere.mode = 'plotted'
+        self.pencere.operand_verisini_al = MagicMock(return_value=(None, None))
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_realtime_ortusmeyen_aralik_uyari(self):
         t_v = np.array([0.0, 1.0, 2.0])
         v_data = np.array([1.0, 2.0, 3.0])
         t_i = np.array([5.0, 6.0, 7.0])
@@ -3437,9 +3520,27 @@ class TestEnergyHesapla(unittest.TestCase):
             args = mock_warning.call_args[0]
             self.assertIn('overlap', args[2].lower())
 
-    def test_previous_mod_direkt_veri_kullanmali(self):
+    def test_realtime_farkli_ornekleme_interpolasyon(self):
+        t_v = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        t_i = np.array([0.0, 2.0, 4.0])
+        i_data = np.array([0.5, 1.5, 2.5])
+
+        self.pencere.mode = 'realtime'
+        self.v_i_mock_kur(t_v, v_data, t_i, i_data)
+
+        with patch('main.veriyi_hizala', wraps=veriyi_hizala) as mock_hizala:
+            self.pencere.energy_hesapla()
+            self.assertGreaterEqual(mock_hizala.call_count, 1)
+
+        wh_text = self.pencere.energy_wh_label.text()
+        self.assertIn('Wh', wh_text)
+        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
+        self.assertFalse(np.isnan(wh_val))
+
+    def test_previous_mod_interpolasyon_yapilmamali(self):
         t = np.linspace(0, 4, 5)
-        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0 ])
+        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         i_data = np.array([0.5, 1.0, 1.5, 2.0, 2.5])
 
         self.pencere.mode = 'previous'
@@ -3451,44 +3552,19 @@ class TestEnergyHesapla(unittest.TestCase):
 
         self.assertIn('Wh', self.pencere.energy_wh_label.text())
 
-    def test_ayni_field_secilirse_uyari_verilmeli(self):
-        self.pencere.energy_vi_combo.setCurrentText('Voltage')
-        self.pencere.energy_ii_combo.clear()
-        self.pencere.energy_ii_combo.addItem('Voltage')
-        self.pencere.energy_ii_combo.setCurrentText('Voltage')
-
-        with patch('main.QMessageBox.warning') as mock_warning:
-            self.pencere.energy_hesapla()
-            mock_warning.assert_called_once()
-
-    def test_full_data_tum_veri_kullanilmali(self):
-        t = np.linspace(0, 10, 100)
-        v_data = np.ones(100) * 12.0
-        i_data = np.ones(100) * 2.0
-
-        self.pencere.mode = 'previous'
-        self.pencere.energy_radio_full.setChecked(True)
-        self.v_i_mock_kur(t, v_data, t, i_data)
-
-        #Wh = 12 * 2 * 10 / 3600 = 0.0667 Wh
-        self.pencere.energy_hesapla()
-        wh_text = self.pencere.energy_wh_label.text()
-        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
-        self.assertAlmostEqual(wh_val, 12.0 * 2.0 * 10.0 / 3600.0, places=3)
-
-    def test_custom_range_bos_giris_uyari_verilmeli(self):
+    def test_custom_range_gecersiz_giris_uyari(self):
         t = np.linspace(0, 4, 5)
         self.v_i_mock_kur(t, np.ones(5), t, np.ones(5))
 
         self.pencere.energy_radio_custom.setChecked(True)
-        self.pencere.energy_start.setText('')
+        self.pencere.energy_start.setText('abc')
         self.pencere.energy_end.setText('')
 
         with patch('main.QMessageBox.warning') as mock_warning:
             self.pencere.energy_hesapla()
             mock_warning.assert_called_once()
 
-    def test_custom_range_bossa_uyari_vermeli(self):
+    def test_custom_range_start_buyuk_eq_end_uyari(self):
         t = np.linspace(0, 4, 5)
         self.v_i_mock_kur(t, np.ones(5), t, np.ones(5))
 
@@ -3502,6 +3578,134 @@ class TestEnergyHesapla(unittest.TestCase):
             args = mock_warning.call_args[0]
             self.assertIn('less than', args[2].lower())
 
+    def test_custom_range_az_nokta_uyari(self):
+        t = np.linspace(0, 10, 5)
+        self.v_i_mock_kur(t, np.ones(5), t, np.ones(5))
+
+        self.pencere.energy_radio_custom.setChecked(True)
+        self.pencere.energy_start.setText('6.0')
+        self.pencere.energy_end.setText('6.5')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_custom_range_normalize_kirpma(self):
+        t = np.linspace(0, 10, 100)
+        v_data = np.ones(100) * 5.0
+        i_data = np.ones(100) * 2.0
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_radio_custom.setChecked(True)
+        self.pencere.energy_start.setText('2.0')
+        self.pencere.energy_end.setText('5.0')
+
+        self.pencere.energy_hesapla()
+
+        self.assertIsNotNone(self.pencere._energy_son_t)
+        self.assertGreater(len(self.pencere._energy_son_t), 1)
+        self.assertGreaterEqual(self.pencere._energy_son_t[0], 2.0 - 1e-6)
+        self.assertLessEqual(self.pencere._energy_son_t[-1], 5.0 + 1e-6)
+        self.assertGreater(len(self.pencere._energy_son_t), 1)
+
+    def test_periodic_sampling_period_girilmezse_uyari(self):
+        t = np.linspace(0, 10, 100)
+        self.v_i_mock_kur(t, np.ones(100), t, np.ones(100))
+
+        self.pencere.energy_radio_period.setChecked(True)
+        self.pencere.energy_period_ms.setText('')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_periodic_sampling_period_buyukse_uyari(self):
+        t = np.linspace(0, 5, 50)
+        v_data = np.ones(50)
+        i_data = np.ones(50)
+        self.pencere.mode = 'previous'
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_radio_period.setChecked(True)
+        self.pencere.energy_period_ms.setText('10000')
+
+        with patch('main.QMessageBox.warning') as mock_warning:
+            self.pencere.energy_hesapla()
+            mock_warning.assert_called_once()
+
+    def test_periodic_sampling_searchsorted_kullanilmali(self):
+        t = np.linspace(0, 10, 1000)
+        v_data = np.ones(1000) * 3.0
+        i_data = np.ones(1000) * 1.0
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_radio_period.setChecked(True)
+        self.pencere.energy_period_ms.setText('2.0')
+
+        with patch('numpy.searchsorted', wraps=np.searchsorted) as mock_ss:
+            self.pencere.energy_hesapla()
+            mock_ss.assert_called()
+
+        self.assertIn('Wh', self.pencere.energy_wh_label.text())
+
+    def test_full_data_tum_veri_kullanilmali(self):
+        t = np.linspace(0, 10, 100)
+        v_data = np.ones(100) * 12.0
+        i_data = np.ones(100) * 2.0
+
+        self.pencere.mode = 'previous'
+        self.pencere.energy_radio_full.setChecked(True)
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_hesapla()
+
+        wh_text = self.pencere.energy_wh_label.text()
+        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
+        self.assertAlmostEqual(wh_val, 12.0 * 2.0 * 10.0 / 3600.0, places=3)
+
+    def test_hesap_basarili_label_guncellenmeli(self):
+        t = np.linspace(0, 3600, 100)
+        v_data = np.ones(100) * 10.0
+        i_data = np.ones(100) * 1.0
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_hesapla()
+
+        wh_text = self.pencere.energy_wh_label.text()
+        ah_text = self.pencere.energy_ah_label.text()
+        self.assertIn('Wh', wh_text)
+        self.assertIn('Ah', ah_text)
+        wh_val = float(wh_text.split(':')[-1].strip().split()[0])
+        ah_val = float(ah_text.split(':')[-1].strip().split()[0])
+        self.assertGreater(wh_val, 0.0)
+        self.assertGreater(ah_val, 0.0)
+
+    def test_hesap_basarili_son_tvi_saklanmali(self):
+        t = np.linspace(0, 4, 5)
+        v_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        i_data = np.array([0.5, 1.0, 1.5, 2.0, 2.5])
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_hesapla()
+
+        self.assertIsNotNone(self.pencere._energy_son_t)
+        self.assertIsNotNone(self.pencere._energy_son_v)
+        self.assertIsNotNone(self.pencere._energy_son_i)
+        self.assertEqual(len(self.pencere._energy_son_t), len(self.pencere._energy_son_v))
+        self.assertEqual(len(self.pencere._energy_son_t), len(self.pencere._energy_son_i))
+
+    def test_checkbox_isaretli_hesap_sonrasi_grafik_acilmali(self):
+        t = np.linspace(0, 4, 5)
+        v_data = np.ones(5) * 5.0
+        i_data = np.ones(5) * 1.0
+        self.v_i_mock_kur(t, v_data, t, i_data)
+
+        self.pencere.energy_graph_checkbox.setChecked(True)
+
+        with patch.object(self.pencere, 'energy_grafik_ac') as mock_ac:
+            self.pencere.energy_hesapla()
+            mock_ac.assert_called_once()
+
 
 class TestEnergyGraphCheckboxDegisti(unittest.TestCase):
 
@@ -3513,6 +3717,9 @@ class TestEnergyGraphCheckboxDegisti(unittest.TestCase):
         plt.close(fig)
         self.pencere.energy_graph_checkbox.setChecked(False)
         self.pencere._energy_pencere = None
+
+    def tearDown(self):
+        plt.close('all')
 
     def test_checkbox_isaretlenince_hesaplama_varsa_grafik_acilmali(self):
         self.pencere._energy_son_t = np.linspace(0, 4, 5)
@@ -3534,7 +3741,7 @@ class TestEnergyGraphCheckboxDegisti(unittest.TestCase):
             self.pencere.energy_graph_checkbox_degisti(True)
             mock_ac.assert_not_called()
 
-    def test_checkbox_kaldirilinca_pencere_kapanmali(self):
+    def test_checkbox_kaldirilinca_pencere_kapanmali_ve_none_olmali(self):
         mock_pencere = MagicMock()
         self.pencere._energy_pencere = mock_pencere
 
@@ -3563,6 +3770,26 @@ class TestEnergyGrafikAc(unittest.TestCase):
             self.pencere._energy_pencere.close()
         plt.close('all')
 
+    def test_kumulatif_wh_ah_dogru_hesaplanmali(self):
+
+        self.pencere.energy_grafik_ac(self.t, self.v, self.i)
+        pencere = self.pencere._energy_pencere
+        self.assertIsNotNone(pencere)
+
+        p = self.v * self.i
+        beklenen_wh = cumulative_trapezoid(p, self.t, initial=0) / 3600.0
+        beklenen_ah = cumulative_trapezoid(self.i, self.t, initial=0) / 3600.0
+
+        fig = pencere.centralWidget().layout().itemAt(1).widget().figure
+        ax1 = fig.axes[0]
+        ax2 = fig.axes[1]
+
+        wh_line = ax1.lines[0]
+        ah_line = ax2.lines[0]
+
+        np.testing.assert_array_almost_equal(wh_line.get_ydata(), beklenen_wh, decimal=5)
+        np.testing.assert_array_almost_equal(ah_line.get_ydata(), beklenen_ah, decimal=5)
+
     def test_legend_toggle_egriyi_gizler_ve_gosterir(self):
         self.pencere.energy_grafik_ac(self.t, self.v, self.i)
         pencere = self.pencere._energy_pencere
@@ -3571,13 +3798,32 @@ class TestEnergyGrafikAc(unittest.TestCase):
         fig = pencere.centralWidget().layout().itemAt(1).widget().figure
         ax1 = fig.axes[0]
         wh_line = ax1.lines[0]
-        self.assertTrue(wh_line.get_visible())
 
+        self.assertTrue(wh_line.get_visible())
         wh_line.set_visible(False)
         self.assertFalse(wh_line.get_visible())
-
         wh_line.set_visible(True)
         self.assertTrue(wh_line.get_visible())
+
+    def test_legend_label_toplam_deger_icermeli(self):
+
+        self.pencere.energy_grafik_ac(self.t, self.v, self.i)
+        pencere = self.pencere._energy_pencere
+        self.assertIsNotNone(pencere)
+
+        fig = pencere.centralWidget().layout().itemAt(1).widget().figure
+        ax1 = fig.axes[0]
+
+        p = self.v * self.i
+        toplam_wh = np.trapezoid(p, self.t) / 3600.0
+        toplam_ah = np.trapezoid(self.i, self.t) / 3600.0
+
+        legend = ax1.get_legend()
+        self.assertIsNotNone(legend)
+        legend_metinler = [t.get_text() for t in legend.get_texts()]
+
+        self.assertTrue(any(f'{toplam_wh:.4f}' in metin for metin in legend_metinler))
+        self.assertTrue(any(f'{toplam_ah:.4f}' in metin for metin in legend_metinler))
 
     def test_pencere_kapatilip_tekrar_acilabilmeli(self):
         self.pencere._energy_son_t = self.t
