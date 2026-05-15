@@ -1,16 +1,24 @@
+import pandas as pd
 import sys
 import os
 import re
-import pandas as pd
+import math #Tile koordinat hesaplamaları için
+import threading #Tile'ları arka planda indirmek için (arayüzün donmaması için)
+from io import BytesIO #Ham bayt verisini resme çevirmek için
 from scipy.io import savemat
 import numpy as np
 import json
 import locale
 import matplotlib.pyplot as plt
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QCursor
 from matplotlib.backend_bases import MouseEvent
 from matplotlib.backend_bases import MouseButton
+
+import requests #Tile URL'Lerine HTTP isteği atmak için
+from PIL import Image #İndirilen PNG'yi PyQt6'nın anlayacağı formata çevirmek için
+
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QObject
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QImage, QCursor
+
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QListWidget, QFileDialog, QLabel,
@@ -45,6 +53,430 @@ def get_writable_dir() -> str:
     except NameError:
         return os.path.abspath(os.getcwd())
 
+TILE_SIZE = 256
+
+TILE_URL = {
+    "Google Satellite": "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+}
+
+HEADERS = {
+    "User-Agent": "FlightDataAnalyzer/1.0"
+}
+
+#Koordinat Dönüşüm Fonksiyonları
+def lat_lon_to_tile(lat, lon, zoom):
+    n = 2 ** zoom
+    x = int((lon + 180) / 360 * n) #boylam
+    lat_r = math.radians(lat)
+    y = int((1 - math.log(math.tan(lat_r) + 1 / math.cos(lat_r)) / math.pi) / 2 * n) #enlem
+    return x, y
+
+def title_to_lat_lon(x, y, zoom):
+    n = 2 ** zoom
+    lon=x/n*360-180
+    lat_r = math.atan(math.sinh(math.pi*(1-2*y/n)))
+    lat = math.degrees(lat_r)
+    return lat, lon
+#Bu formüller tüm internet haritalarının kullandığı standart.Dünyayı düz bir kareye yansıtmanın matematiksel yolu.
+
+#tile'ları arka planda thread ile indiren motor.
+class TileWorker(QObject):
+    tile_ready = pyqtSignal(int, int, int, object) #Sinyal sistemi.Tile indiğinde arayüze haber verir.
+
+    def __init__(self):
+        super().__init__()
+        self._cache = {} #İndirilen tilelar burada tutulur.
+        self._queue = [] #İndirilmesi istenilen tileların sırası.
+        self._lock = threading.Lock() #_queue'ya hem ana thread hem indirme thread'i erişiyor. Aynı anda ikisi birden yazmasın diye kilit koyuyoruz
+        self._source = list(TILE_URL.values())[0]
+        self._cache_dir="tile_cache"
+        os.makedirs(self._cache_dir, exist_ok=True)
+        self._thread = threading.Thread(target=self.run, daemon=True)
+        self._thread.start()
+
+    def request(self, z,x,y):
+        key = (z, x, y)
+        if key in self._cache:
+            return
+        with self._lock:
+            if key not in self._queue:
+                self._queue.append(key)
+
+    def get(self, z, x, y):
+        return self._cache.get((z, x, y))
+
+    def run(self):
+        """run içindeki döngü:
+        1.Kuyruktan bir tile al
+        2.URL'yi oluştur, HTTP isteği at
+        3.PNG'yi PIL ile aç, PyQt6'nın anlayacağı QPixmap'e çevir
+        4.Cache'e kaydet, sinyal gönder"""
+        while True:
+            key = None
+            with self._lock:
+                if self._queue:
+                    key = self._queue.pop()
+            if key is None:
+                threading.Event().wait(0.02)
+                continue
+            z, x, y = key
+            if key in self._cache:
+                continue
+
+            #Önce diske bak
+            disk_path = os.path.join(self._cache_dir, f"{z}_{x}_{y}.png")
+            if os.path.exists(disk_path):
+                try:
+                    img = Image.open(disk_path).convert("RGBA")
+                    data = img.tobytes("raw", "RGBA")
+                    qimg = QImage(data, img.width, img.height,
+                                  QImage.Format.Format_RGBA8888)
+                    pix = QPixmap.fromImage(qimg)
+                    self._cache[key] = pix
+                    self.tile_ready.emit(z, x, y, pix)
+                    continue
+                except Exception:
+                    pass
+
+            #Diskte yoksa internetten çek
+            try:
+                url = self._source.format(z=z, x=x, y=y)
+                r = requests.get(url, headers=HEADERS, timeout=5)
+                if r.status_code == 200:
+                    #Diske kaydet
+                    with open(disk_path, "wb") as f:
+                        f.write(r.content)
+                    #Belleğe al
+                    img = Image.open(BytesIO(r.content)).convert("RGBA")
+                    data = img.tobytes("raw", "RGBA")
+                    qimg = QImage(data, img.width, img.height,
+                                  QImage.Format.Format_RGBA8888)
+                    pix = QPixmap.fromImage(qimg)
+                    self._cache[key] = pix
+                    self.tile_ready.emit(z, x, y, pix)
+            except Exception:
+                pass
+
+
+class MapWidget(QWidget):
+    coord_update = pyqtSignal(float, float)
+    zaman_update = pyqtSignal(float)
+
+    def __init__(self):
+        super().__init__()
+        self.zoom = 12
+        self.center_lat = 39.9334
+        self.center_lon = 32.8597
+        self.dragging = False
+        self.last_mouse = QPoint()
+        self.worker = TileWorker()
+        self.worker.tile_ready.connect(self.on_tile_ready)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.rota_zamanlari = []
+        self.rota_koordinatlari = [] #Uçuş rota verisi
+
+    def on_tile_ready(self, z):
+        """Arka planda indirme devam ederken zoom yapıldığında
+        görsel bozukluk olmaması için o zooma ait veri mi diye kontrol ediliyor"""
+        if z==self.zoom:
+            self.update()
+
+    def center_pixel(self):
+        """Haritanın merkezindeki enlem-boylam koordinatını dünya üzerindeki pixel koordinatına çevirir"""
+        n = 2 ** self.zoom
+        px = (self.center_lon + 180)/360 * n * TILE_SIZE
+        lat_r = math.radians(self.center_lat)
+        py = (1 - math.log(math.tan(lat_r) + 1 / math.cos(lat_r)) / math.pi) / 2 * n * TILE_SIZE
+        return px, py
+
+    def pixel_to_latlon(self, px, py):
+        """Ekrandaki pixel noktasını enlem-boylam koordinatına çevirir"""
+        w, h = self.width(), self.height()
+        cx_px, cy_px = self.center_pixel()
+        world_x = cx_px + (px - w / 2)
+        world_y = cy_px + (py - h / 2)
+        n = 2 ** self.zoom
+        lon = world_x / (n * TILE_SIZE) * 360 - 180
+        lat = math.degrees(math.atan(math.sinh(
+            math.pi * (1 - 2 * world_y / (n * TILE_SIZE)))))
+        return lat, lon
+
+    def latlon_to_screen(self, lat, lon):
+        """Koordinatı ekran pixeline çevirir"""
+        """w=width, h=height"""
+        w, h = self.width(), self.height()
+        cx_px, cy_px = self.center_pixel()
+        n = 2 ** self.zoom
+        px = (lon + 180) / 360 * n * TILE_SIZE
+        lat_r = math.radians(lat)
+        py = (1 - math.log(math.tan(lat_r) + 1 / math.cos(lat_r)) / math.pi) / 2 * n * TILE_SIZE
+        screen_x = int(px - cx_px + w / 2)
+        screen_y = int(py - cy_px + h / 2)
+
+        return screen_x, screen_y
+
+    def rota_yukle(self, koordinatlar, zamanlar=None):
+        """Ana uygulamadan lat/lon ve zaman listesi alır"""
+        self.rota_koordinatlari = koordinatlar
+        self.rota_zamanlari = zamanlar if zamanlar is not None else[]
+
+        if koordinatlar:
+            self.center_lat, self.center_lon = koordinatlar[0]
+        self.update()
+
+    def paintEvent(self, event): #Her çizimde ekranda hangi tilelerin görünmesi gerektiğini hesaplar.Cacehde varsa çizer yoksa worker.requests ile sıraya ekler.
+        painter = QPainter(self)
+        w, h = self.width(), self.height()
+        cx_px, cy_px = self.center_pixel()
+
+        tile_x0 = int((cx_px - w/2) / TILE_SIZE) #sol kenar
+        tile_y0 = int((cy_px - h/2) / TILE_SIZE)  #üst
+        tile_x1 = int((cx_px + w/2) / TILE_SIZE) + 1 #sağ kenar
+        tile_y1 = int((cy_px + h/2) / TILE_SIZE) + 1 #alt
+
+        for tx in range(tile_x0, tile_x1 + 1):
+            for ty in range(tile_y0, tile_y1 + 1):
+                pix = self.worker.get(self.zoom, tx, ty) #Her tile için cache de var mı diye sorar
+                draw_x = int(tx * TILE_SIZE - cx_px + w/2)
+                draw_y = int(ty * TILE_SIZE - cy_px + h/2)
+                if pix:
+                    painter.drawPixmap(draw_x, draw_y, pix) #Cache'de varsa Tile'ı çizer.
+                else:
+                    self.worker.request(self.zoom, tx, ty)  #Yoksa indirme sırasına ekler
+                    painter.fillRect(draw_x, draw_y, TILE_SIZE, TILE_SIZE, QColor(30, 30, 30))
+
+        #Uçuş rotasını çiz
+        if len(self.rota_koordinatlari) > 1:
+            painter.setPen(QPen(QColor(0, 0, 200), 2)) #Mavi 2 pixel kalınlığında
+            for i in range(len(self.rota_koordinatlari) - 1):
+                x1, y1 = self.latlon_to_screen(*self.rota_koordinatlari[i])
+                x2, y2 = self.latlon_to_screen(*self.rota_koordinatlari[i+1])
+                painter.drawLine(x1, y1, x2, y2)
+
+            self.igne_ciz(painter, self.rota_koordinatlari[0], QColor(0, 200, 0)) #Yeşil kalkis, 0 (listenin ilk elemanı)
+            self.igne_ciz(painter, self.rota_koordinatlari[-1], QColor(200, 0, 0)) #Kirmizi inis, -1 (listenin son elemanı)
+
+    def igne_ciz(self, painter: QPainter, koordinat: tuple, renk: QColor, boyut: int = 8):
+        """Haritada nokta çizer."""
+        x, y = self.latlon_to_screen(*koordinat)
+        painter.setBrush(renk)
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        painter.drawEllipse(x - boyut // 2, y - boyut // 2, boyut, boyut)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.dragging = True
+            self.last_mouse = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def mouseMoveEvent(self, event):
+        if self.dragging:
+            dx = event.pos().x() - self.last_mouse.x()
+            dy = event.pos().y() - self.last_mouse.y()
+            self.last_mouse = event.pos()
+            n = 2 ** self.zoom
+            self.center_lon -= dx / TILE_SIZE / n * 360
+            lat_r = math.radians(self.center_lat)
+            self.center_lat += dy / TILE_SIZE / n * 360 * math.cos(lat_r)
+            self.update()
+        lat, lon = self.pixel_to_latlon(event.pos().x(), event.pos().y())
+        self.coord_update.emit(lat, lon)
+
+        #Mouse en yakın noktanın zamanı
+        if self.rota_koordinatlari and self.rota_zamanlari:
+            en_yakin_idx = min(
+                range(len(self.rota_koordinatlari)),
+                key=lambda i: (self.rota_koordinatlari[i][0] - lat) ** 2 +
+                              (self.rota_koordinatlari[i][1] - lon) ** 2
+            )
+            self.zaman_update.emit(self.rota_zamanlari[en_yakin_idx])
+
+    def mouseReleaseEvent(self, event):
+        self.dragging = False
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta > 0 and self.zoom < 20:
+            self.zoom += 1
+        elif delta < 0 and self.zoom > 2:
+            self.zoom -= 1
+        lat, lon = self.center_lat, self.center_lon
+        self.coord_update.emit(lat, lon)
+
+        self.update()
+
+
+class HaritaPenceresi(QMainWindow):
+    def __init__(self, plotted_data, parent_ref= None):
+        super().__init__()
+        self.parent_ref = parent_ref
+        self.setWindowTitle("Flight Map")
+        self.resize(1000, 700)
+
+        central = QWidget()
+        self.setCentralWidget(central)
+        ana_layout = QHBoxLayout(central)
+
+        #Sol panel
+        sol_panel = QWidget()
+        sol_panel.setFixedWidth(200)
+        sol_layout = QVBoxLayout(sol_panel)
+        sol_layout.setContentsMargins(5, 5, 5, 5)
+
+        #Latitude
+        sol_layout.addWidget(QLabel("LATITUDE"))
+        self.lat_group = QButtonGroup()
+        self.lat_listesi = QListWidget()
+        self.lat_listesi.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.lat_listesi.itemClicked.connect(
+            lambda item: [b.setChecked(False) for b in self.lat_group.buttons()] or
+                         self.lat_group.buttons()[self.lat_listesi.row(item)].setChecked(True)
+            if self.lat_group.buttons() else None
+        )
+        sol_layout.addWidget(self.lat_listesi)
+
+        #Longitude
+        sol_layout.addWidget(QLabel("LONGITUDE"))
+        self.lon_group = QButtonGroup()
+        self.lon_listesi = QListWidget()
+        self.lon_listesi.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        sol_layout.addWidget(self.lon_listesi)
+
+        sol_layout.addStretch()
+
+        #Koordinat gösterimi
+        self.koordinat_label = QLabel("Lat: —   Lon: — ")
+        sol_layout.addWidget(self.koordinat_label)
+        zaman_layout = QHBoxLayout()
+        self.t_label = QLabel("time(s): —")
+        zaman_layout.addWidget(self.t_label)
+        sol_layout.addLayout(zaman_layout)
+        self.zoom_label = QLabel("Zoom: 12")
+        zaman_layout.addWidget(self.zoom_label)
+        self.aralik_label = QLabel("Range(s): —")
+        sol_layout.addWidget(self.aralik_label)
+
+        #Apply butonu
+        self.btn_apply = QPushButton("Apply")
+        self.btn_apply.clicked.connect(self.uygula)
+        sol_layout.addWidget(self.btn_apply)
+
+        #Sağ panel
+        self.harita = MapWidget()
+        self.harita.coord_update.connect(self.koordinat_guncelle)
+        self.harita.zaman_update.connect(self.t_guncelle)
+
+        ana_layout.addWidget(sol_panel)
+        ana_layout.addWidget(self.harita, 1)
+
+        #Veriyi sakla ve kolonları doldur
+        self.plotted_data = plotted_data
+        self.kolonlari_doldur()
+
+    def t_guncelle(self, t):
+        self.t_label.setText(f"time(s): {t:.2f}s")
+
+    def kolonlari_doldur(self):
+        self.lat_listesi.clear()
+        self.lon_listesi.clear()
+
+        for label in self.plotted_data.keys():
+            if ' | ' in label:
+                self.lat_listesi.addItem(label)
+                self.lon_listesi.addItem(label)
+
+    def koordinat_guncelle(self, lat, lon):
+        self.koordinat_label.setText(f"Lat: {lat:.5f}   Lon: {lon:.5f}")
+        self.zoom_label.setText(f"Zoom: {self.harita.zoom}")
+
+    def zaman_araligini_guncelle(self, t_min, t_max):
+        lat_item = self.lat_listesi.currentItem()
+        lon_item = self.lon_listesi.currentItem()
+        if lat_item is None or lon_item is None:
+            return
+
+        #currentItem dolu ama seçili değilse çık
+        if not self.lat_listesi.selectedItems() or not self.lon_listesi.selectedItems():
+            return
+
+        lat_label = lat_item.text()
+        lon_label = lon_item.text()
+
+        lat_t, lat_data, lon_t, lon_data = None, None, None, None
+
+        for label, (t, y) in self.plotted_data.items():
+            if label == lat_label:
+                lat_t = np.asarray(t)
+                lat_data = np.asarray(y)
+            if label == lon_label:
+                lon_t = np.asarray(t)
+                lon_data = np.asarray(y)
+
+        if lat_t is None or lat_data is None or lon_t is None or lon_data is None:
+            return
+
+        #Farklı frekansa sahip veriler için lon lat'a hizallanıyor
+        if not np.array_equal(lat_t, lon_t):
+            df_lon = pd.DataFrame({'t': lon_t, 'v': lon_data})
+            t_series = pd.Series(lat_t)
+            lon_data = veriyi_hizala(df_lon, t_series, 'v', 'nearest').to_numpy(dtype=float)
+
+        t_min = max(t_min, lat_t[0])
+        t_max = min(t_max, lat_t[-1])
+
+        mask = (lat_t >= t_min) & (lat_t <= t_max)
+        lat_filtered = lat_data[mask]
+        lon_filtered = lon_data[mask]
+        t_filtered = lat_t[mask]
+
+        if len(lat_filtered) < 2:
+            return
+
+        koordinatlar = list(zip(lat_filtered, lon_filtered))
+        self.harita.rota_yukle(koordinatlar, list(t_filtered))
+        self.aralik_label.setText(f"Range(s): {t_min:.1f}s — {t_max:.1f}s")
+
+    def uygula(self):
+        lat_item = self.lat_listesi.currentItem()
+        lon_item = self.lon_listesi.currentItem()
+
+        if lat_item is None or lon_item is None:
+            QMessageBox.warning(self, "Warning", "Please select the latitude and longitude columns.")
+            return
+
+        lat_label = lat_item.text()
+        lon_label = lon_item.text()
+
+        lat_t, lat_data, lon_data = None, None, None
+
+        for label, (t, y) in self.plotted_data.items():
+            if label == lat_label:
+                lat_t = np.asarray(t)
+                lat_data = np.asarray(y)
+            if label == lon_label:
+                lon_data = np.asarray(y)
+
+        if lat_data is None or lon_data is None:
+            QMessageBox.warning(self, "Warning", "The selected columns were not found in the data.")
+            return
+
+        koordinatlar = list(zip(lat_data, lon_data))
+        self.harita.rota_yukle(koordinatlar, list(lat_t))
+
+        #Mevcut grafik zoom aralığını da hemen uygula
+        if self.parent_ref is not None:
+            ax = self.parent_ref.canvas.figure.axes[0]
+            t_min, t_max = ax.get_xlim()
+            self.zaman_araligini_guncelle(t_min, t_max)
+
+    def closeEvent(self, event):
+        if self.parent_ref is not None:
+            self.parent_ref.btn_harita.setText('Open Map')
+            self.parent_ref.harita_penceresi = None
+        super().closeEvent(event)
+
 
 class GrafikPenceresi(QMainWindow):
 
@@ -54,7 +486,7 @@ class GrafikPenceresi(QMainWindow):
         self.figure_no = figure_no
         self.mode = mode
         self.setWindowTitle(f'Figure {figure_no} — TIME MODE: {mode.upper()}')
-        self.resize(900, 500)
+        #self.resize(900, 500)
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -67,6 +499,9 @@ class GrafikPenceresi(QMainWindow):
         self.legend_checkbox = QCheckBox("Insert Legend")
         self.legend_checkbox.setChecked(True)
         self.legend_checkbox.stateChanged.connect(self.legend_guncelle)
+        self.btn_harita = QPushButton('Open Map')
+        self.btn_harita.setFixedWidth(90)
+        self.btn_harita.clicked.connect(self.harita_toggle)
 
         self.lines = []
         self.line_map = {}
@@ -81,7 +516,9 @@ class GrafikPenceresi(QMainWindow):
         grafik_widget = QWidget()
         grafik_layout = QVBoxLayout(grafik_widget)
         grafik_layout.addWidget(self.canvas)
-        self.tabs.addTab(grafik_widget, "Graph")
+
+        self.tabs.insertTab(0, grafik_widget, "Graph")
+        self.harita_penceresi = None
 
         #Rapor sekmesi
         self.rapor_widget = QWidget()
@@ -302,7 +739,11 @@ class GrafikPenceresi(QMainWindow):
         self.tabs.addTab(self.energy_widget, 'Wh / Ah')
 
         layout.addWidget(self.toolbar)
-        layout.addWidget(self.legend_checkbox)
+        legend_harita_layout = QHBoxLayout()
+        legend_harita_layout.addWidget(self.legend_checkbox)
+        legend_harita_layout.addWidget(self.btn_harita)
+        legend_harita_layout.addStretch()
+        layout.addLayout(legend_harita_layout)
         layout.addWidget(self.tabs)
 
         self.setCentralWidget(central)
@@ -315,6 +756,30 @@ class GrafikPenceresi(QMainWindow):
         #Operations veri deposu: {"Op1": (t, v, aciklama, sol, op, sag, sabit_mi)}
         self.op_data = {}
         self._op_sayac = 0
+
+        self.xlim_cid = None
+
+    def harita_toggle(self):
+        if self.harita_penceresi is None or not self.harita_penceresi.isVisible():
+            self.harita_penceresi = HaritaPenceresi(self.plotted_data, parent_ref=self)
+            self.harita_penceresi.show()
+            self.btn_harita.setText('Close Map')
+
+            ax = self.canvas.figure.axes[0]
+            self.xlim_cid = ax.callbacks.connect('xlim_changed', self.harita_xlim_degisti)
+        else:
+            ax = self.canvas.figure.axes[0]
+            ax.callbacks.disconnect(self.xlim_cid)
+            self.xlim_cid = None
+            self.harita_penceresi.close()
+            self.harita_penceresi = None
+            self.btn_harita.setText('Open Map')
+
+    def harita_xlim_degisti(self, ax):
+        if self.harita_penceresi is None or not self.harita_penceresi.isVisible():
+            return
+        t_min, t_max = ax.get_xlim()
+        self.harita_penceresi.zaman_araligini_guncelle(t_min, t_max)
 
     def energy_dropdown_guncelle(self):
         """Energy sekmesindeki Vi/Ii dropdown'larını mevcut U parametreleriyle doldurur."""
